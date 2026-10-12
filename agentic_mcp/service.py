@@ -42,14 +42,27 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
     app = FastAPI(title="Agentic MCP", version="1")
     app.state.desk = desk
 
-    @app.middleware("http")
-    async def guard(request: Request, call_next):
-        # Reading the service is open; changing anything is not, and neither is
-        # the MCP endpoint, through which every controller's tools are called.
-        if token and (request.method != "GET" or request.url.path.startswith("/mcp")):
-            if request.headers.get("authorization", "") != f"Bearer {token}":
-                return PlainTextResponse("this needs the agentic MCP's token", status_code=401)
-        return await call_next(request)
+    class Guard:
+        """Reading the service is open; changing anything is not, and neither
+        is the MCP endpoint, through which every controller's tools are called.
+
+        Written as plain ASGI: the helper that wraps a function as middleware
+        reads a response as one start and then its body, which a stream that
+        stays open (the MCP endpoint) is not, and it raised on every client
+        that connected there."""
+
+        def __init__(self, inner):
+            self.inner = inner
+
+        async def __call__(self, scope, receive, send):
+            if token and scope["type"] == "http" and (scope["method"] != "GET" or scope["path"].startswith("/mcp")):
+                given = dict(scope.get("headers") or []).get(b"authorization", b"").decode("latin-1")
+                if given != f"Bearer {token}":
+                    return await PlainTextResponse("this needs the agentic MCP's token", status_code=401)(
+                        scope, receive, send)
+            await self.inner(scope, receive, send)
+
+    app.add_middleware(Guard)
 
     def seat_or_404(key: str):
         try:
@@ -205,7 +218,6 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
         from mcp import types
         from mcp.server.lowlevel import Server
         from mcp.server.sse import SseServerTransport
-        from starlette.responses import Response
         from starlette.routing import Mount, Route
     except Exception:  # noqa: BLE001 - the MCP package is optional; HTTP is not
         app.state.mcp = "not served: the mcp package is not installed"
@@ -285,12 +297,15 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
 
         return [types.TextContent(type="text", text=await asyncio.to_thread(run))]
 
-    async def handle_sse(request):
-        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # noqa: SLF001
-            await server.run(streams[0], streams[1], server.create_initialization_options())
-        return Response()
+    class Stream:
+        """The stream a client stays connected to. It is the whole response:
+        nothing is sent after it ends."""
 
-    app.router.routes.append(Route("/mcp/sse", endpoint=handle_sse))
+        async def __call__(self, scope, receive, send):
+            async with sse.connect_sse(scope, receive, send) as streams:
+                await server.run(streams[0], streams[1], server.create_initialization_options())
+
+    app.router.routes.append(Route("/mcp/sse", endpoint=Stream()))
     app.router.routes.append(Mount("/mcp/messages/", app=sse.handle_post_message))
 
 

@@ -142,6 +142,43 @@ class QueuedWriteTests(Base):
         self.assertEqual(got["error"], "rate_limited")
 
 
+class ReplayWatchTests(unittest.TestCase):
+    """When what was approved is put back on a controller."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = os.path.join(self.dir.name, "ryu.seen.json")
+        self.three = {"ok": True, "rows": [{"dpid": 1}, {"dpid": 2}, {"dpid": 3}]}
+
+    def test_the_first_look_ever_is_the_starting_point(self):
+        self.assertEqual(skills.Watcher(self.path).new_in(self.three), 0)
+
+    def test_a_switch_that_appears_is_new_and_one_that_stays_is_not(self):
+        w = skills.Watcher(self.path)
+        w.new_in({"ok": True, "rows": [{"dpid": 1}]})
+        self.assertEqual(w.new_in(self.three), 2)
+        self.assertEqual(w.new_in(self.three), 0)
+
+    def test_a_read_that_failed_does_not_make_everything_new_afterwards(self):
+        w = skills.Watcher(self.path)
+        w.new_in(self.three)
+        self.assertEqual(w.new_in({"ok": False, "error": "timed out"}), 0)
+        self.assertEqual(w.new_in(self.three), 0)
+
+    def test_a_switch_that_went_away_and_came_back_is_new(self):
+        w = skills.Watcher(self.path)
+        w.new_in(self.three)
+        w.new_in({"ok": True, "rows": [{"dpid": 1}, {"dpid": 2}]})
+        self.assertEqual(w.new_in(self.three), 1)
+
+    def test_starting_the_service_again_is_not_a_reason_to_replay(self):
+        skills.Watcher(self.path).new_in(self.three)
+        again = skills.Watcher(self.path)
+        self.assertEqual(again.new_in(self.three), 0)
+        self.assertEqual(again.new_in({"ok": True, "rows": self.three["rows"] + [{"dpid": 4}]}), 1)
+
+
 class SmallThingsTests(unittest.TestCase):
     def test_a_number_in_any_spelling(self):
         self.assertEqual([number(x) for x in (257, "257", "0x101", "0000000000000101", "de0102")],

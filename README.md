@@ -221,6 +221,7 @@ Nothing else needs to change for it to be checked.
 | `AGENTIC_MCP_MODEL_URL` | the Ollama that serves it; another machine works |
 | `AGENTIC_MCP_MODEL_GPU=0` | keep the model on the CPU |
 | `AGENTIC_MCP_TIMEOUT` | seconds to wait for a controller (20) |
+| `AGENTIC_MCP_CONNECTIONS` | connections kept to each controller (32) |
 
 ## What it does not do
 

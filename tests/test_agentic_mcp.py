@@ -261,6 +261,23 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(len(self.desk.read("guided", "read_links")["data"]["links"]), 2)
         self.desk.remove("guided")
 
+    def test_9_a_client_that_connects_to_the_mcp_stream_and_leaves_raises_nothing(self):
+        import logging
+        import requests
+        seen = []
+        handler = logging.Handler()
+        handler.emit = lambda record: seen.append(record.getMessage())
+        logging.getLogger("uvicorn.error").addHandler(handler)
+        self.addCleanup(logging.getLogger("uvicorn.error").removeHandler, handler)
+        with requests.get(self.desk.url + "/mcp/sse", stream=True, timeout=5) as r:
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("event-stream", r.headers["content-type"])
+            first = next(r.iter_lines())
+            self.assertIn(b"endpoint", first)
+        time.sleep(0.5)
+        self.assertEqual([m for m in seen if "Exception" in m], [])
+        self.assertEqual(self.desk.health()["mcp"], "/mcp/sse")
+
     def test_7_a_service_that_is_not_there_is_said_plainly(self):
         gone = RemoteDesk("http://127.0.0.1:9")
         self.assertIn("not answering", gone.answers())

@@ -24,6 +24,20 @@ import requests
 AUDIT = os.path.join(os.getenv("AGENTIC_MCP_DATA") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"),
                      "audit.jsonl")
 TIMEOUT = float(os.getenv("AGENTIC_MCP_TIMEOUT") or os.getenv("CONNECTOR_TIMEOUT") or "20")
+POOL = int(os.getenv("AGENTIC_MCP_CONNECTIONS", "32"))
+
+
+def _client() -> requests.Session:
+    """One controller is asked by many callers at once. The library keeps ten
+    connections by default and opens and throws away one for every request
+    beyond that, saying so in the log each time."""
+    http = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=POOL)
+    http.mount("http://", adapter)
+    http.mount("https://", adapter)
+    return http
+
+
 _PARAM = re.compile(r"\{([^{}]+)\}")
 
 
@@ -53,7 +67,7 @@ class Session:
             queue = Queue(os.path.join(os.path.dirname(audit), "queue.json"))
         self.queue = queue
         self.env = os.environ if env is None else env
-        self.http = http or requests.Session()
+        self.http = http or _client()
         self.audit = audit
         self.host = "{0.scheme}://{0.netloc}".format(urlsplit(manifest["base_url"]))
 

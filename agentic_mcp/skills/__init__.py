@@ -9,6 +9,8 @@ also gets one tool per verb its manifest maps.
 from __future__ import annotations
 
 import importlib
+import json
+import os
 import logging
 from typing import Any, Callable, Dict
 
@@ -67,26 +69,60 @@ def start_background(session: Any, data: str) -> None:
     if rule.get("when_new_in"):
         import threading
         import time
+        key = session.manifest["key"]
+        watcher = Watcher(os.path.join(data, f"{key}.seen.json"))
 
         def watch():
-            seen: set = set()
             while True:
                 try:
-                    got = session.read(rule["when_new_in"])
-                    now = {json_key(r) for r in (got.get("rows") if "rows" in got else got.get("data") or [])} \
-                        if got.get("ok") else set()
-                    if now - seen:
+                    new = watcher.new_in(session.read(rule["when_new_in"]))
+                    if new:
                         done = session.replay()
                         if done["replayed"] or done["failed"]:
-                            logger.info("%s: %d new in %s; replayed %d write(s), %d failed",
-                                        session.manifest["key"], len(now - seen), rule["when_new_in"],
-                                        len(done["replayed"]), len(done["failed"]))
-                    seen = now
+                            logger.info("%s: %d new in %s; replayed %d write(s), %d failed", key, new,
+                                        rule["when_new_in"], len(done["replayed"]), len(done["failed"]))
                 except Exception:  # noqa: BLE001 - a controller that is down is a normal state
-                    seen = set()
+                    pass
                 time.sleep(float(rule.get("every_s", 15)))
 
-        threading.Thread(target=watch, name=f"replay-{session.manifest['key']}", daemon=True).start()
+        threading.Thread(target=watch, name=f"replay-{key}", daemon=True).start()
+
+
+class Watcher:
+    """What a watched read held last time it answered, to tell what is new.
+
+    Only a read that answered counts. A read that failed says nothing about
+    what is there, so what was seen before stands: treating it as "nothing
+    there" made everything new at the next good read, and one slow answer put
+    every approved write on the controller again. What was seen is kept on
+    disk, so starting this service again is not a reason to replay either. The
+    first time ever, what is there is taken as the starting point.
+    """
+
+    def __init__(self, path: str = ""):
+        self.path = path
+        self.seen: Any = None
+        try:
+            with open(path) as fh:
+                self.seen = set(json.load(fh))
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def new_in(self, got: Dict[str, Any]) -> int:
+        """How many rows of this answer were not there at the last good one."""
+        if not got.get("ok"):
+            return 0
+        now = {json_key(r) for r in (got.get("rows") if "rows" in got else got.get("data") or [])}
+        new = len(now - self.seen) if self.seen is not None else 0
+        if now != self.seen:
+            self.seen = now
+            if self.path:
+                try:
+                    with open(self.path, "w") as fh:
+                        json.dump(sorted(now), fh)
+                except OSError:
+                    pass
+        return new
 
 
 def json_key(row: Any) -> str:
