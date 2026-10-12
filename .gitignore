@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# What the service keeps while it runs: onboarded controllers (with their
+# addresses), uploaded manifests, the approval queue and the audit log.
+agentic_mcp/data/
+
+# Credentials of the controllers. See controllers.env.example.
+controllers.env
+*.log

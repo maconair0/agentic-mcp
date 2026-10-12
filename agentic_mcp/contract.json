@@ -1,0 +1,469 @@
+{
+ "about": "The contract every controller is checked against at onboarding. It is split into domains of work. Each domain lists the verbs that belong to it. A verb says which HTTP methods may serve it and which words in an operation's path count for or against it. A controller is accepted when every required domain that applies to its layer has at least one verb it can serve.",
+ "version": 1,
+ "accept": "every required domain that applies has at least one verb served",
+ "domains": [
+  {
+   "name": "inventory",
+   "required": true,
+   "why": "know what is in the network",
+   "verbs": {
+    "read_devices": {
+     "why": "what is in the domain",
+     "methods": [
+      "GET"
+     ],
+     "for": {
+      "/devices": 6,
+      "/switches": 6,
+      "portmapping:network": 5,
+      "/nodes": 4,
+      "network-topology:network-topology": 2,
+      "inventory": 2
+     },
+     "against": [
+      "ports",
+      "stat",
+      "region",
+      "cluster",
+      "_ids",
+      "desc"
+     ]
+    },
+    "read_device": {
+     "why": "one device in detail",
+     "methods": [
+      "GET"
+     ],
+     "one": true,
+     "for": {
+      "/devices/{": 6,
+      "/device/{": 6,
+      "/stats/desc/{": 5,
+      "portmapping:network/nodes={": 5,
+      "/switches/{": 4
+     },
+     "against": [
+      "ports",
+      "stat",
+      "flows",
+      "portstate",
+      "/nodes={node-id}/",
+      "mapping",
+      "region"
+     ]
+    },
+    "read_ports": {
+     "why": "the ports of a device",
+     "methods": [
+      "GET"
+     ],
+     "one": true,
+     "for": {
+      "/devices/{id}/ports": 7,
+      "/portdesc/{": 6,
+      "/ports": 3,
+      "/mapping": 3
+     },
+     "against": [
+      "stat",
+      "statistics",
+      "portstate",
+      "modulation"
+     ]
+    }
+   }
+  },
+  {
+   "name": "topology",
+   "required": true,
+   "why": "know how it is connected",
+   "verbs": {
+    "read_links": {
+     "why": "the graph to route over",
+     "methods": [
+      "GET"
+     ],
+     "for": {
+      "/links": 6,
+      "ietf-network:networks": 5,
+      "topology_details": 4,
+      "tapi-common:context": 2,
+      "/topology": 2
+     },
+     "against": [
+      "stat",
+      "cluster",
+      "_ids",
+      "optical",
+      "usestale",
+      "hosts",
+      "switches"
+     ]
+    },
+    "read_hosts": {
+     "why": "what is attached at the edge",
+     "methods": [
+      "GET"
+     ],
+     "layers": [
+      "packet",
+      "multi-layer"
+     ],
+     "for": {
+      "/hosts": 6,
+      "/topology/hosts": 6
+     },
+     "against": [
+      "{"
+     ]
+    }
+   }
+  },
+  {
+   "name": "services",
+   "required": true,
+   "why": "know what is already provisioned",
+   "verbs": {
+    "read_services": {
+     "why": "what is already provisioned",
+     "methods": [
+      "GET"
+     ],
+     "for": {
+      "service:service-list": 7,
+      "/services": 6,
+      "/intents": 6,
+      "/flows": 3,
+      "/stats/flow/": 3,
+      "connectivity-service": 3
+     },
+     "against": [
+      "temp",
+      "versioned",
+      "notification",
+      "application",
+      "pending",
+      "mini",
+      "related",
+      "installable",
+      "table",
+      "_ids",
+      "nodelist",
+      "path-list",
+      "connection",
+      "allocation"
+     ]
+    },
+    "read_service": {
+     "why": "one service in detail",
+     "methods": [
+      "GET"
+     ],
+     "one": true,
+     "for": {
+      "service-list/services={": 7,
+      "/service/{": 6,
+      "/intents/{": 6,
+      "/flows/{": 3
+     },
+     "against": [
+      "temp",
+      "versioned",
+      "/services={service-name}/",
+      "related",
+      "installable",
+      "connection",
+      "allocation",
+      "application"
+     ]
+    }
+   }
+  },
+  {
+   "name": "path computation",
+   "required": false,
+   "why": "find a route without committing to it",
+   "verbs": {
+    "compute_path": {
+     "why": "a route, without committing to it",
+     "methods": [
+      "GET",
+      "POST"
+     ],
+     "computes": true,
+     "for": {
+      "path-computation-request": 7,
+      "connectivity_candidates": 6,
+      "/paths/": 5,
+      "compute-p-2-p-path": 3
+     },
+     "against": [
+      "reroute",
+      "delete",
+      "bulk",
+      "disjoint",
+      "notification",
+      "optimize"
+     ]
+    },
+    "check_feasibility": {
+     "why": "would this service fit, without building it",
+     "methods": [
+      "POST"
+     ],
+     "computes": true,
+     "for": {
+      "service-feasibility-check": 7,
+      "feasibility": 4
+     },
+     "against": [
+      "bulk",
+      "notification"
+     ]
+    }
+   }
+  },
+  {
+   "name": "resources",
+   "required": false,
+   "why": "know what is free before asking for it",
+   "verbs": {
+    "read_spectrum": {
+     "why": "which wavelengths are free",
+     "methods": [
+      "GET"
+     ],
+     "layers": [
+      "optical",
+      "multi-layer"
+     ],
+     "for": {
+      "spectrum_reservations": 6,
+      "optical_links": 5,
+      "spectrum": 4,
+      "available-wavelength": 4,
+      "frequenc": 3
+     },
+     "against": [
+      "consume",
+      "release",
+      "constraint"
+     ]
+    },
+    "read_statistics": {
+     "why": "counters that show traffic is carried",
+     "methods": [
+      "GET"
+     ],
+     "for": {
+      "/statistics/ports": 6,
+      "/stats/port/": 6,
+      "/statistics/flows": 3,
+      "pm-data": 3,
+      "/statistics": 2
+     },
+     "against": [
+      "delta",
+      "table",
+      "activeentries",
+      "meter",
+      "group"
+     ]
+    }
+   }
+  },
+  {
+   "name": "provisioning",
+   "required": true,
+   "why": "build a service and take it down again",
+   "verbs": {
+    "provision": {
+     "why": "create a service",
+     "methods": [
+      "POST"
+     ],
+     "writes": true,
+     "for": {
+      "service:service-create": 7,
+      "/intents": 6,
+      "flowentry/add": 6,
+      "/services": 5,
+      "create-connectivity-service": 3,
+      "/flows": 2
+     },
+     "against": [
+      "bulk",
+      "temp",
+      "notification",
+      "result",
+      "application",
+      "pending",
+      "{"
+     ]
+    },
+    "teardown": {
+     "why": "remove a service and release what it held",
+     "methods": [
+      "DELETE",
+      "POST"
+     ],
+     "writes": true,
+     "one": true,
+     "for": {
+      "service:service-delete": 7,
+      "/intents/": 6,
+      "flowentry/delete": 6,
+      "/service/": 5,
+      "/services/": 5,
+      "delete-connectivity-service": 3
+     },
+     "against": [
+      "bulk",
+      "temp",
+      "notification",
+      "result",
+      "renderer",
+      "tapi-sbi",
+      "application",
+      "related",
+      "installable",
+      "reservation",
+      "connection",
+      "allocation"
+     ]
+    }
+   }
+  },
+  {
+   "name": "adjustment",
+   "required": false,
+   "why": "change a running service in place",
+   "verbs": {
+    "adjust": {
+     "why": "change a service in place",
+     "methods": [
+      "POST",
+      "PUT",
+      "PATCH"
+     ],
+     "writes": true,
+     "one": true,
+     "for": {
+      "service-reconfigure": 7,
+      "flowentry/modify": 6,
+      "/service/": 5,
+      "/services/": 5,
+      "update-connectivity-service": 3
+     },
+     "against": [
+      "bulk",
+      "notification",
+      "confirm",
+      "result",
+      "temp",
+      "consume",
+      "release",
+      "allocation",
+      "connection",
+      "reroute"
+     ]
+    },
+    "reroute": {
+     "why": "move a service to another path",
+     "methods": [
+      "POST"
+     ],
+     "writes": true,
+     "for": {
+      "service:service-reroute": 7,
+      "service-restoration": 5,
+      "reroute": 3
+     },
+     "against": [
+      "bulk",
+      "notification",
+      "confirm",
+      "result",
+      "path-computation"
+     ]
+    }
+   }
+  },
+  {
+   "name": "health",
+   "required": true,
+   "why": "know the controller itself is working",
+   "verbs": {
+    "health": {
+     "why": "is the controller up and complete",
+     "methods": [
+      "GET"
+     ],
+     "for": {
+      "/healthz": 7,
+      "/system": 6,
+      "/cluster": 5,
+      "/health": 5,
+      "/stats/switches": 4,
+      "yang-library": 3,
+      "/contexts": 2
+     },
+     "against": [
+      "{",
+      "nodes",
+      "aaa"
+     ]
+    },
+    "read_alarms": {
+     "why": "what the network is complaining about",
+     "methods": [
+      "GET"
+     ],
+     "for": {
+      "alarm": 5,
+      "notification": 3,
+      "/events": 3
+     },
+     "against": [
+      "{",
+      "subscription",
+      "suppression",
+      "process-service",
+      "nbi-notifications"
+     ]
+    }
+   }
+  },
+  {
+   "name": "device configuration",
+   "required": false,
+   "why": "change a setting on one device",
+   "verbs": {
+    "configure_device": {
+     "why": "change a setting on one device",
+     "methods": [
+      "PUT",
+      "POST",
+      "PATCH"
+     ],
+     "writes": true,
+     "one": true,
+     "for": {
+      "/device/{": 6,
+      "/devices/{id}/portstate": 5,
+      "/modulation": 4,
+      "/network/configuration": 3,
+      "device-renderer": 3
+     },
+     "against": [
+      "rollback",
+      "notification",
+      "region",
+      "mastership"
+     ]
+    }
+   }
+  }
+ ]
+}

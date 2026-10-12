@@ -1,0 +1,11 @@
+requests>=2.28
+PyYAML>=6.0
+fastapi>=0.110
+uvicorn>=0.27
+jsonschema>=4.0
+# MCP over SSE (/mcp/sse). Without it the HTTP API still runs.
+mcp>=1.2,<2
+# A file uploaded as a form field (multipart). A raw body needs nothing.
+python-multipart>=0.0.9
+# Optional: a user guide uploaded as a PDF.
+# pypdf>=4.0

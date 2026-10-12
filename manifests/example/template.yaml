@@ -1,0 +1,78 @@
+# Controller manifest template (agentic-mcp.controller/v1).
+#
+# Copy this file, fill it in for your controller, and upload it:
+#     python -m agentic_mcp install mykind.yaml
+#     curl -X POST http://localhost:8400/manifests --data-binary @mykind.yaml
+# Only `manifest`, `kind` and `recognise` are required. Everything else makes
+# the controller more useful. The description of the format explains every
+# section, and manifest.schema.json in the package is the same thing for a
+# program.
+
+manifest: agentic-mcp.controller/v1
+kind: mykind                      # a short lower-case name for this kind of controller
+title: My controller              # for people
+version: "1"
+domain: packet                    # optical, packet or multi-layer; leave out to have it worked out
+about: >
+  One or two sentences: what this controller manages and how its API is reached.
+
+# How a controller of this kind is told from any other. One of the two.
+recognise:
+  operation_contains: /api/switches     # a path only this kind's API has
+  # fingerprint: /api/health            # or: an address only this kind answers with JSON
+
+# Where its API is described, when the controller does not publish it at a
+# usual address (openapi.json, swagger.json, RESTCONF). All optional.
+api:
+  openapi: []                     # e.g. [/custom/openapi.json]
+  docs: []                        # documentation pages to read operations from
+
+# Its operations, for a controller that publishes no API document at all.
+# Leave this out when the controller describes itself.
+# operations:
+#   - {method: GET, path: /api/switches, summary: Every switch}
+#   - {method: POST, path: /api/services, summary: Create a service, writes: true}
+
+# Arguments that have a usual value.
+defaults: {}
+
+# How each verb of the contract is done. State the ones your controller has;
+# a verb left out is matched by name from the controller's API, and a write
+# matched that way waits for a person's confirmation.
+# The verbs: read_devices read_device read_ports read_links read_hosts
+# read_services read_service compute_path check_feasibility read_spectrum
+# read_statistics provision teardown adjust reroute health read_alarms
+# configure_device
+verbs:
+  health:
+    operation: GET /api/health
+  read_devices:
+    operation: GET /api/switches
+    # how to read the answer as plain rows: where the list is, then each field
+    view: {rows: switches, id: id, name: name, type: kind, status: status}
+  read_links:
+    operation: GET /api/links
+    view: {rows: links, src: src, dst: dst}
+  read_services:
+    operation: GET /api/services
+    view: {rows: services, id: name, name: name, status: state}
+  provision:
+    operation: POST /api/services
+    arguments:                    # each argument and what it is
+      name: a name for the service
+      a_end: the device at one end
+      z_end: the device at the other end
+    body: {name: $name, a_end: $a_end, z_end: $z_end}   # $argument where one goes
+    policy: {max_per_hour: 20}    # writes of this verb beyond it are refused
+  teardown:
+    operation: DELETE /api/services/{name}
+    arguments: {name: the service to remove}
+
+# What the API does not say and use has shown, one sentence each.
+quirks:
+  - A service needs both ends; without them the controller answers 400.
+
+# Prose about working with it, for whoever asks in words.
+guide: >
+  What a service is on this controller, what has to exist before one can be
+  made, and anything an operator would tell a newcomer.

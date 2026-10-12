@@ -1,0 +1,1766 @@
+# A controller manifest in the standard form (agentic-mcp.controller/v1).
+# Upload it to the agentic MCP and onboard the controller.
+# MANIFEST_FORMAT.md describes every section.
+manifest: agentic-mcp.controller/v1
+kind: onos
+title: ONOS
+version: '1'
+domain: packet
+about: 'ONOS is a general-purpose SDN controller with a REST API under /onos/v1, and publishes a Swagger document, so its operations are read from the controller itself.'
+recognise:
+  operation_contains: /onos/v1/intents
+api:
+  style: onos
+  openapi:
+  - /onos/v1/docs/apis/onos/v1/swagger.json
+quirks:
+- Its REST API accepts only HostToHostIntent and PointToPointIntent.
+- A point-to-point intent across a routed topology is answered 201 Created and then FAILS with nothing installed.
+  A flow rule on each router is accepted and installed, so flow rules are how a routed network is configured.
+- 'It has no operation that changes an intent or a flow in place: a change is a removal and a new one.'
+- It computes no path over a link to a device that has no port enabled.
+guide: A service on ONOS is either an intent (between two hosts or two connect points) or a set of flow rules, one
+  per device on the path. Flow rules are what work across a routed network.
+verbs:
+  read_devices:
+    operation: GET /onos/v1/devices
+    view:
+      rows: devices
+      id: id
+      name: annotations.name
+      type: type
+      available: available
+  read_device:
+    operation: GET /onos/v1/devices/{id}
+  read_ports:
+    operation: GET /onos/v1/devices/{id}/ports
+  read_links:
+    operation: GET /onos/v1/links
+    view:
+      rows: links
+      src: src.device
+      dst: dst.device
+      src_port: src.port
+      dst_port: dst.port
+      state: state
+  read_hosts:
+    operation: GET /onos/v1/hosts
+    view:
+      rows: hosts
+  read_services:
+    operation: GET /onos/v1/intents
+    view:
+      rows: intents
+  read_service:
+    operation: GET /onos/v1/intents/{appId}/{key}
+  compute_path:
+    operation: GET /onos/v1/paths/{src}/{dst}
+  read_statistics:
+    operation: GET /onos/v1/statistics/ports
+  health:
+    operation: GET /onos/v1/system
+  provision:
+    operation: POST /onos/v1/flows/{device_id}
+    arguments:
+      device_id: the device the flow goes on
+      priority: higher wins
+      criteria: 'what to match, e.g. [{"type": "IN_PORT", "port": "1"}]'
+      instructions: 'what to do, e.g. [{"type": "OUTPUT", "port": "2"}]'
+    body:
+      priority:
+        $int: $priority
+      timeout: 0
+      isPermanent: true
+      deviceId: $device_id
+      treatment:
+        instructions: $instructions
+      selector:
+        criteria: $criteria
+  teardown:
+    operation: DELETE /onos/v1/flows/{deviceId}/{flowId}
+provides:
+  read_devices: get_devices
+  read_device: get_device
+  read_ports: get_device_ports
+  read_links: get_links
+  read_hosts: get_hosts
+  read_services: get_all_intents
+  read_service: get_intent
+  compute_path: get_shortest_paths
+  read_statistics: get_port_statistics
+  provision: add_flow
+  teardown: remove_flow
+  health: get_system_info
+not_carried_over:
+- add_buckets_to_group
+- add_devices_to_region
+- add_group
+- add_host
+- add_meter
+- add_multicast_route
+- add_multicast_sink
+- apply_mastership_role
+- change_device_port_state
+- create_region
+- get_diagnostics
+- get_intents_by_application
+- get_link_flow_statistics
+- get_network_analytics
+- remove_devices_from_region
+- remove_multicast_route
+- run_diagnostics_command
+- set_port_modulation
+- set_stale_link_status
+tools:
+- name: get_devices
+  description: "Get information about all network devices.\n\n    Returns array of all discovered infrastructure\
+    \ devices.\n    "
+  schema:
+    properties: {}
+    title: get_devicesArguments
+    type: object
+  method: GET
+  path: /onos/v1/devices
+  reply: repr
+  error_text: 'Error retrieving devices: {error}'
+- name: get_device
+  description: "Get detailed information about a specific device.\n\n    Args:\n        deviceId: ID of the device\
+    \ to query\n\n    Returns details of the specified infrastructure device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_deviceArguments
+    type: object
+  method: GET
+  path: /onos/v1/devices/{deviceId}
+  reply: repr
+  error_text: 'Error retrieving device {deviceId}: {error}'
+- name: remove_device
+  description: "Administratively remove a device from the inventory.\n\n    Args:\n        deviceId: ID of the device\
+    \ to remove\n\n    Administratively deletes the specified device from the inventory of known devices.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: remove_deviceArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/devices/{deviceId}
+  reply: text
+  ok_text: Device {deviceId} removed successfully from the inventory
+  error_text: 'Error removing device {deviceId}: {error}'
+- name: get_all_device_ports
+  description: "Get information about ports on all infrastructure devices.\n\n    Returns port details of all infrastructure\
+    \ devices.\n    "
+  schema:
+    properties: {}
+    title: get_all_device_portsArguments
+    type: object
+  method: GET
+  path: /onos/v1/devices/ports
+  reply: repr
+  error_text: 'Error retrieving all device ports: {error}'
+- name: get_device_ports
+  description: "Get information about all ports on a specific device.\n\n    Args:\n        deviceId: ID of the\
+    \ device to query ports for\n\n    Returns details of ports for the specified infrastructure device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_portsArguments
+    type: object
+  method: GET
+  path: /onos/v1/devices/{deviceId}/ports
+  reply: repr
+  error_text: 'Error retrieving ports for device {deviceId}: {error}'
+- name: get_flows
+  description: "Get all flow entries.\n\n    Returns array of all flow rules in the system.\n    "
+  schema:
+    properties: {}
+    title: get_flowsArguments
+    type: object
+  method: GET
+  path: /onos/v1/flows
+  reply: repr
+  error_text: 'Error retrieving flows: {error}'
+- name: get_device_flows
+  description: "Get all flow entries for a specific device.\n\n    Args:\n        deviceId: ID of the device to\
+    \ query\n\n    Returns array of all flow rules for the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_flowsArguments
+    type: object
+  method: GET
+  path: /onos/v1/flows/{deviceId}
+  reply: repr
+  error_text: 'Error retrieving flows for device {deviceId}: {error}'
+- name: get_flow
+  description: "Get a specific flow rule by device ID and flow ID.\n\n    Args:\n        deviceId: Device identifier\n\
+    \        flowId: Flow rule identifier formatted as a string\n\n    Returns the flow entry specified by the device\
+    \ id and flow rule id.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      flowId:
+        anyOf:
+        - type: string
+        - type: integer
+        title: Flowid
+    required:
+    - deviceId
+    - flowId
+    title: get_flowArguments
+    type: object
+  method: GET
+  path: /onos/v1/flows/{deviceId}/{flowId}
+  reply: repr
+  error_text: 'Error retrieving flow {flowId} for device {deviceId}: {error}'
+- name: get_table_flows
+  description: "Get all flow entries for a table.\n\n    Args:\n        tableId: Table identifier\n\n    Returns\
+    \ array of all flow rules for a table.\n    "
+  schema:
+    properties:
+      tableId:
+        title: Tableid
+        type: integer
+    required:
+    - tableId
+    title: get_table_flowsArguments
+    type: object
+  method: GET
+  path: /onos/v1/flows/table/{tableId}
+  reply: repr
+  error_text: 'Error retrieving flows for table {tableId}: {error}'
+- name: get_application_flows
+  description: "Get flow rules generated by an application.\n\n    Args:\n        appId: Application identifier\n\
+    \n    Returns the flow rule specified by the application id.\n    "
+  schema:
+    properties:
+      appId:
+        title: Appid
+        type: string
+    required:
+    - appId
+    title: get_application_flowsArguments
+    type: object
+  method: GET
+  path: /onos/v1/flows/application/{appId}
+  reply: repr
+  error_text: 'Error retrieving flows for application {appId}: {error}'
+- name: get_pending_flows
+  description: "Get all pending flow entries.\n\n    Returns array of all pending flow rules in the system.\n  \
+    \  "
+  schema:
+    properties: {}
+    title: get_pending_flowsArguments
+    type: object
+  method: GET
+  path: /onos/v1/flows/pending
+  reply: repr
+  error_text: 'Error retrieving pending flows: {error}'
+- name: remove_application_flows
+  description: "Remove flow rules generated by an application.\n\n    Args:\n        appId: Application identifier\n\
+    \n    Removes a collection of flow rules generated by the given application.\n    "
+  schema:
+    properties:
+      appId:
+        title: Appid
+        type: string
+    required:
+    - appId
+    title: remove_application_flowsArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/flows/application/{appId}
+  reply: text
+  ok_text: All flows for application {appId} removed successfully
+  error_text: 'Error removing flows for application {appId}: {error}'
+- name: remove_flows
+  description: "Remove a batch of flow rules.\n\n    Args:\n        flows: List of flow rule specifications to remove\n\
+    \    "
+  schema:
+    properties:
+      flows:
+        items:
+          additionalProperties: true
+          type: object
+        title: Flows
+        type: array
+    required:
+    - flows
+    title: remove_flowsArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/flows
+  body:
+    arg: flows
+  reply: text
+  ok_text: Flow rules batch removed successfully
+  error_text: 'Error removing flow rules batch: {error}'
+- name: get_all_groups
+  description: "Returns all groups of all devices.\n\n    Retrieves information about all group entries across all\
+    \ devices.\n    "
+  schema:
+    properties: {}
+    title: get_all_groupsArguments
+    type: object
+  method: GET
+  path: /onos/v1/groups
+  reply: repr
+  error_text: 'Error retrieving all groups: {error}'
+- name: get_device_groups
+  description: "Returns all groups associated with the given device.\n\n    Args:\n        deviceId: Device identifier\n\
+    \    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_groupsArguments
+    type: object
+  method: GET
+  path: /onos/v1/groups/{deviceId}
+  reply: repr
+  error_text: 'Error retrieving groups for device {deviceId}: {error}'
+- name: get_group
+  description: "Returns a group with the given deviceId and appCookie.\n\n    Args:\n        deviceId: Device identifier\n\
+    \        appCookie: Application cookie/key that identifies the group\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      appCookie:
+        title: Appcookie
+        type: string
+    required:
+    - deviceId
+    - appCookie
+    title: get_groupArguments
+    type: object
+  method: GET
+  path: /onos/v1/groups/{deviceId}/{appCookie}
+  reply: repr
+  error_text: 'Error retrieving group with cookie {appCookie} for device {deviceId}: {error}'
+- name: remove_group
+  description: "Removes the specified group.\n\n    Args:\n        deviceId: Device identifier\n        appCookie:\
+    \ Application cookie used for lookup\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      appCookie:
+        title: Appcookie
+        type: string
+    required:
+    - deviceId
+    - appCookie
+    title: remove_groupArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/groups/{deviceId}/{appCookie}
+  reply: text
+  ok_text: Group with cookie {appCookie} removed successfully from device {deviceId}
+  error_text: 'Error removing group with cookie {appCookie} from device {deviceId}: {error}'
+- name: remove_buckets_from_group
+  description: "Removes buckets from an existing group.\n\n    Args:\n        deviceId: Device identifier\n    \
+    \    appCookie: Application cookie\n        bucketIds: Comma separated list of bucket identifiers to remove\n\
+    \    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      appCookie:
+        title: Appcookie
+        type: string
+      bucketIds:
+        title: Bucketids
+        type: string
+    required:
+    - deviceId
+    - appCookie
+    - bucketIds
+    title: remove_buckets_from_groupArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/groups/{deviceId}/{appCookie}/buckets/{bucketIds}
+  reply: text
+  ok_text: Buckets {bucketIds} removed successfully from group with cookie {appCookie} on device {deviceId}
+  error_text: 'Error removing buckets from group with cookie {appCookie} on device {deviceId}: {error}'
+- name: get_hosts
+  description: "Get all end-station hosts.\n\n    Returns array of all known end-station hosts.\n    "
+  schema:
+    properties: {}
+    title: get_hostsArguments
+    type: object
+  method: GET
+  path: /onos/v1/hosts
+  reply: repr
+  error_text: 'Error retrieving hosts: {error}'
+- name: get_host
+  description: "Get details of a specific end-station host.\n\n    Args:\n        host_id: Host identifier\n\n \
+    \   Returns detailed properties of the specified end-station host.\n    "
+  schema:
+    properties:
+      host_id:
+        title: Host Id
+        type: string
+    required:
+    - host_id
+    title: get_hostArguments
+    type: object
+  method: GET
+  path: /onos/v1/hosts/{host_id}
+  reply: repr
+  error_text: 'Error retrieving host {host_id}: {error}'
+- name: get_host_by_mac_vlan
+  description: "Get details of end-station host with MAC/VLAN.\n\n    Args:\n        mac: Host MAC address\n   \
+    \     vlan: Host VLAN identifier\n\n    Returns detailed properties of the specified end-station host.\n    "
+  schema:
+    properties:
+      mac:
+        title: Mac
+        type: string
+      vlan:
+        title: Vlan
+        type: string
+    required:
+    - mac
+    - vlan
+    title: get_host_by_mac_vlanArguments
+    type: object
+  method: GET
+  path: /onos/v1/hosts/{mac}/{vlan}
+  reply: repr
+  error_text: 'Error retrieving host with MAC {mac} and VLAN {vlan}: {error}'
+- name: remove_host
+  description: "Remove a host from the inventory.\n\n    Args:\n        mac: Host MAC address\n        vlan: Host\
+    \ VLAN identifier\n\n    Administratively deletes the specified host from the inventory of known hosts.\n  \
+    \  "
+  schema:
+    properties:
+      mac:
+        title: Mac
+        type: string
+      vlan:
+        title: Vlan
+        type: string
+    required:
+    - mac
+    - vlan
+    title: remove_hostArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/hosts/{mac}/{vlan}
+  reply: text
+  ok_text: Host with MAC {mac} and VLAN {vlan} removed successfully
+  error_text: 'Error removing host with MAC {mac} and VLAN {vlan}: {error}'
+- name: get_intent
+  description: "Gets intent by application ID and key.\n\n    Args:\n        appId: Application identifier\n   \
+    \     key: Intent key\n\n    Returns details of the specified intent.\n    "
+  schema:
+    properties:
+      appId:
+        title: Appid
+        type: string
+      key:
+        title: Key
+        type: string
+    required:
+    - appId
+    - key
+    title: get_intentArguments
+    type: object
+  method: GET
+  path: /onos/v1/intents/{appId}/{key}
+  reply: repr
+  error_text: 'Error retrieving intent {key} for app {appId}: {error}'
+- name: get_intent_installables
+  description: "Gets intent installables by application ID and key.\n\n    Args:\n        appId: Application identifier\n\
+    \        key: Intent key\n    "
+  schema:
+    properties:
+      appId:
+        title: Appid
+        type: string
+      key:
+        title: Key
+        type: string
+    required:
+    - appId
+    - key
+    title: get_intent_installablesArguments
+    type: object
+  method: GET
+  path: /onos/v1/intents/installables/{appId}/{key}
+  reply: repr
+  error_text: 'Error retrieving installables for intent {key}, app {appId}: {error}'
+- name: get_intent_related_flows
+  description: "Gets all related flow entries created by a particular intent.\n\n    Args:\n        appId: Application\
+    \ identifier\n        key: Intent key\n\n    Returns all flow entries of the specified intent.\n    "
+  schema:
+    properties:
+      appId:
+        title: Appid
+        type: string
+      key:
+        title: Key
+        type: string
+    required:
+    - appId
+    - key
+    title: get_intent_related_flowsArguments
+    type: object
+  method: GET
+  path: /onos/v1/intents/relatedflows/{appId}/{key}
+  reply: repr
+  error_text: 'Error retrieving flows for intent {key}, app {appId}: {error}'
+- name: get_intents_summary
+  description: "Gets summary of all intents.\n\n    Returns a summary of the intents in the system.\n    "
+  schema:
+    properties: {}
+    title: get_intents_summaryArguments
+    type: object
+  method: GET
+  path: /onos/v1/intents/minisummary
+  reply: repr
+  error_text: 'Error retrieving intents summary: {error}'
+- name: submit_intent
+  description: "Submits a new intent.\n\n    Args:\n        intent_data: Intent configuration including type, priority,\
+    \ constraints, etc.\n\n    Creates and submits intent from the supplied JSON data.\n    "
+  schema:
+    properties:
+      intent_data:
+        additionalProperties: true
+        title: Intent Data
+        type: object
+    required:
+    - intent_data
+    title: submit_intentArguments
+    type: object
+  method: POST
+  path: /onos/v1/intents
+  body:
+    arg: intent_data
+  reply: text
+  ok_text: 'Intent submitted successfully: {result}'
+  error_text: 'Error submitting intent: {error}'
+- name: withdraw_intent
+  description: "Withdraws an intent.\n\n    Args:\n        appId: Application identifier\n        key: Intent key\n\
+    \n    Withdraws the specified intent from the system.\n    "
+  schema:
+    properties:
+      appId:
+        title: Appid
+        type: string
+      key:
+        title: Key
+        type: string
+    required:
+    - appId
+    - key
+    title: withdraw_intentArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/intents/{appId}/{key}
+  reply: text
+  ok_text: Intent {key} for app {appId} withdrawn successfully
+  error_text: 'Error withdrawing intent {key} for app {appId}: {error}'
+- name: get_links
+  description: "Get infrastructure links.\n\n    Returns array of all links.\n    "
+  schema:
+    properties: {}
+    title: get_linksArguments
+    type: object
+  method: GET
+  path: /onos/v1/links
+  reply: repr
+  error_text: 'Error retrieving links: {error}'
+- name: get_stale_link_status
+  description: "Get useStaleLinkAge active status.\n\n    Returns current status of the VanishedStaleLink.\n    "
+  schema:
+    properties: {}
+    title: get_stale_link_statusArguments
+    type: object
+  method: GET
+  path: /onos/v1/links/usestalelinkage
+  reply: repr
+  error_text: 'Error retrieving stale link status: {error}'
+- name: get_mastership_balance
+  description: "Balance mastership across all online instances.\n\n    Balances the mastership to be shared as evenly\
+    \ as possible by all online instances.\n    "
+  schema:
+    properties: {}
+    title: get_mastership_balanceArguments
+    type: object
+  method: GET
+  path: /onos/v1/mastership
+  reply: repr
+  error_text: 'Error balancing mastership: {error}'
+- name: get_device_controllers
+  description: "Get controllers connected to a device, in order of preference.\n\n    Args:\n        deviceId: Device\
+    \ identifier\n\n    The first entry in the list is the current master.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_controllersArguments
+    type: object
+  method: GET
+  path: /onos/v1/mastership/{deviceId}/role
+  reply: repr
+  error_text: 'Error retrieving controllers for device {deviceId}: {error}'
+- name: request_device_mastership
+  description: "Request mastership of a device for the local controller.\n\n    Args:\n        deviceId: Device\
+    \ identifier\n\n    Returns the mastership status and forces master selection if necessary.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: request_device_mastershipArguments
+    type: object
+  method: GET
+  path: /onos/v1/mastership/{deviceId}/request
+  reply: repr
+  error_text: 'Error requesting mastership for device {deviceId}: {error}'
+- name: get_device_master
+  description: "Get the current master controller for a device.\n\n    Args:\n        deviceId: Device identifier\n\
+    \n    Returns the current master for the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_masterArguments
+    type: object
+  method: GET
+  path: /onos/v1/mastership/{deviceId}/master
+  reply: repr
+  error_text: 'Error retrieving master for device {deviceId}: {error}'
+- name: get_controller_devices
+  description: "Get devices for which a controller is the master.\n\n    Args:\n        nodeId: Controller identifier\n\
+    \n    Returns the devices for which the controller is master.\n    "
+  schema:
+    properties:
+      nodeId:
+        title: Nodeid
+        type: string
+    required:
+    - nodeId
+    title: get_controller_devicesArguments
+    type: object
+  method: GET
+  path: /onos/v1/mastership/{nodeId}/device
+  reply: repr
+  error_text: 'Error retrieving devices for controller {nodeId}: {error}'
+- name: relinquish_device_mastership
+  description: "Abandon mastership of a device on the local node.\n\n    Args:\n        deviceId: Device identifier\n\
+    \n    Forces selection of a new master. If the local node is not a master\n    for this device, no master selection\
+    \ will occur.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: relinquish_device_mastershipArguments
+    type: object
+  method: GET
+  path: /onos/v1/mastership/{deviceId}/relinquish
+  reply: text
+  ok_text: 'Mastership of device {deviceId} relinquished: {result}'
+  error_text: 'Error relinquishing mastership for device {deviceId}: {error}'
+- name: get_local_device_role
+  description: "Get the role of the local node for a device.\n\n    Args:\n        deviceId: Device identifier\n\
+    \n    Returns the role of the local node for the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_local_device_roleArguments
+    type: object
+  method: GET
+  path: /onos/v1/mastership/{deviceId}/local
+  reply: repr
+  error_text: 'Error retrieving local role for device {deviceId}: {error}'
+- name: get_all_meters
+  description: "Returns all meters of all devices.\n\n    Gets comprehensive information about all meters across\
+    \ all devices.\n    "
+  schema:
+    properties: {}
+    title: get_all_metersArguments
+    type: object
+  method: GET
+  path: /onos/v1/meters
+  reply: repr
+  error_text: 'Error retrieving all meters: {error}'
+- name: get_device_meters
+  description: "Returns a collection of meters by the device id.\n\n    Args:\n        deviceId: Device identifier\n\
+    \n    Gets all meters for the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_metersArguments
+    type: object
+  method: GET
+  path: /onos/v1/meters/{deviceId}
+  reply: repr
+  error_text: 'Error retrieving meters for device {deviceId}: {error}'
+- name: get_meter
+  description: "Returns a meter by the meter id.\n\n    Args:\n        deviceId: Device identifier\n        meterId:\
+    \ Meter identifier\n\n    Gets details for a specific meter on the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      meterId:
+        title: Meterid
+        type: string
+    required:
+    - deviceId
+    - meterId
+    title: get_meterArguments
+    type: object
+  method: GET
+  path: /onos/v1/meters/{deviceId}/{meterId}
+  reply: repr
+  error_text: 'Error retrieving meter {meterId} for device {deviceId}: {error}'
+- name: remove_meter
+  description: "Removes the meter by device id and meter id.\n\n    Args:\n        deviceId: Device identifier\n\
+    \        meterId: Meter identifier\n\n    Removes the specified meter from the device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      meterId:
+        title: Meterid
+        type: string
+    required:
+    - deviceId
+    - meterId
+    title: remove_meterArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/meters/{deviceId}/{meterId}
+  reply: text
+  ok_text: Meter {meterId} removed successfully from device {deviceId}
+  error_text: 'Error removing meter {meterId} from device {deviceId}: {error}'
+- name: get_meter_by_cell_id
+  description: "Returns a meter by the meter cell id.\n\n    Args:\n        deviceId: Device identifier\n      \
+    \  scope: Scope identifier\n        index: Index\n\n    Gets details for a specific meter on the device by cell\
+    \ ID.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      scope:
+        title: Scope
+        type: string
+      index:
+        title: Index
+        type: string
+    required:
+    - deviceId
+    - scope
+    - index
+    title: get_meter_by_cell_idArguments
+    type: object
+  method: GET
+  path: /onos/v1/meters/{deviceId}/{scope}/{index}
+  reply: repr
+  error_text: 'Error retrieving meter with scope {scope} and index {index} for device {deviceId}: {error}'
+- name: remove_meter_by_cell_id
+  description: "Removes the meter by the device id and meter cell id.\n\n    Args:\n        deviceId: Device identifier\n\
+    \        scope: Scope identifier\n        index: Index\n\n    Removes the specified meter from the device by\
+    \ cell ID.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      scope:
+        title: Scope
+        type: string
+      index:
+        title: Index
+        type: string
+    required:
+    - deviceId
+    - scope
+    - index
+    title: remove_meter_by_cell_idArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/meters/{deviceId}/{scope}/{index}
+  reply: text
+  ok_text: Meter with scope {scope} and index {index} removed successfully from device {deviceId}
+  error_text: 'Error removing meter with scope {scope} and index {index} from device {deviceId}: {error}'
+- name: get_meters_by_scope
+  description: "Returns a collection of meters by the device id and meter scope.\n\n    Args:\n        deviceId:\
+    \ Device identifier\n        scope: Scope identifier\n\n    Gets all meters for the specified device filtered\
+    \ by scope.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      scope:
+        title: Scope
+        type: string
+    required:
+    - deviceId
+    - scope
+    title: get_meters_by_scopeArguments
+    type: object
+  method: GET
+  path: /onos/v1/meters/scope/{deviceId}/{scope}
+  reply: repr
+  error_text: 'Error retrieving meters with scope {scope} for device {deviceId}: {error}'
+- name: get_all_metrics
+  description: "Gets stats information of all metrics.\n\n    Returns array of all information for all metrics.\n\
+    \    "
+  schema:
+    properties: {}
+    title: get_all_metricsArguments
+    type: object
+  method: GET
+  path: /onos/v1/metrics
+  reply: repr
+  error_text: 'Error retrieving all metrics: {error}'
+- name: get_specific_metric
+  description: "Gets stats information of a specific metric.\n\n    Args:\n        metricName: Name of the metric\
+    \ to query\n\n    Returns array of all information for the specified metric.\n    "
+  schema:
+    properties:
+      metricName:
+        title: Metricname
+        type: string
+    required:
+    - metricName
+    title: get_specific_metricArguments
+    type: object
+  method: GET
+  path: /onos/v1/metrics/{metricName}
+  reply: repr
+  error_text: 'Error retrieving metric {metricName}: {error}'
+- name: get_all_modulation_devices
+  description: "Gets all modulation config devices.\n\n    Returns array of all discovered modulation config devices.\n\
+    \    "
+  schema:
+    properties: {}
+    title: get_all_modulation_devicesArguments
+    type: object
+  method: GET
+  path: /onos/v1/modulation
+  reply: repr
+  error_text: 'Error retrieving modulation devices: {error}'
+- name: get_modulation_device
+  description: "Gets the details of a modulation config device.\n\n    Args:\n        device_id: Device identifier\n\
+    \n    Returns the details of the specified modulation config device.\n    "
+  schema:
+    properties:
+      device_id:
+        title: Device Id
+        type: string
+    required:
+    - device_id
+    title: get_modulation_deviceArguments
+    type: object
+  method: GET
+  path: /onos/v1/modulation/{device_id}
+  reply: repr
+  error_text: 'Error retrieving modulation device {device_id}: {error}'
+- name: apply_device_modulation
+  description: "Applies the target modulation for the specified device.\n\n    Args:\n        modulation_data: JSON\
+    \ representation of device, port, component and target bitrate info\n\n    Sets the modulation parameters for\
+    \ a device.\n    "
+  schema:
+    properties:
+      modulation_data:
+        additionalProperties: true
+        title: Modulation Data
+        type: object
+    required:
+    - modulation_data
+    title: apply_device_modulationArguments
+    type: object
+  method: PUT
+  path: /onos/v1/modulation
+  body:
+    arg: modulation_data
+  reply: text
+  ok_text: 'Modulation applied successfully: {result}'
+  error_text: 'Error applying modulation: {error}'
+- name: get_multicast_routes
+  description: "Get all multicast routes.\n\n    Returns array of all known multicast routes.\n    "
+  schema:
+    properties: {}
+    title: get_multicast_routesArguments
+    type: object
+  method: GET
+  path: /onos/v1/mcast
+  reply: repr
+  error_text: 'Error retrieving multicast routes: {error}'
+- name: get_network_configuration
+  description: "Gets entire network configuration base.\n\n    Returns all network configuration information stored\
+    \ in the system.\n    "
+  schema:
+    properties: {}
+    title: get_network_configurationArguments
+    type: object
+  method: GET
+  path: /onos/v1/network/configuration
+  reply: repr
+  error_text: 'Error retrieving network configuration: {error}'
+- name: upload_network_configuration
+  description: "Uploads bulk network configuration.\n\n    Args:\n        config_data: Network configuration JSON\
+    \ rooted at the top node\n\n    Uploads a complete set of network configurations.\n    "
+  schema:
+    properties:
+      config_data:
+        additionalProperties: true
+        title: Config Data
+        type: object
+    required:
+    - config_data
+    title: upload_network_configurationArguments
+    type: object
+  method: POST
+  path: /onos/v1/network/configuration
+  body:
+    arg: config_data
+  reply: text
+  ok_text: 'Network configuration uploaded successfully: {result}'
+  error_text: 'Error uploading network configuration: {error}'
+- name: clear_network_configuration
+  description: "Clear entire network configuration base.\n\n    Removes all network configuration from the system.\n\
+    \    "
+  schema:
+    properties: {}
+    title: clear_network_configurationArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/network/configuration
+  reply: text
+  ok_text: Network configuration cleared successfully
+  error_text: 'Error clearing network configuration: {error}'
+- name: get_subject_class_configuration
+  description: "Gets all network configuration for a subject class.\n\n    Args:\n        subject_class_key: Subject\
+    \ class key\n\n    Returns all configuration for the specified subject class.\n    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+    required:
+    - subject_class_key
+    title: get_subject_class_configurationArguments
+    type: object
+  method: GET
+  path: /onos/v1/network/configuration/{subject_class_key}
+  reply: repr
+  error_text: 'Error retrieving configuration for subject class {subject_class_key}: {error}'
+- name: upload_subject_class_configuration
+  description: "Upload multiple network configurations for a subject class.\n\n    Args:\n        subject_class_key:\
+    \ Subject class key\n        config_data: Network configuration JSON rooted at the top node\n\n    Uploads configurations\
+    \ for the specified subject class.\n    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+      config_data:
+        additionalProperties: true
+        title: Config Data
+        type: object
+    required:
+    - subject_class_key
+    - config_data
+    title: upload_subject_class_configurationArguments
+    type: object
+  method: POST
+  path: /onos/v1/network/configuration/{subject_class_key}
+  body:
+    arg: config_data
+  reply: text
+  ok_text: 'Configuration for subject class {subject_class_key} uploaded successfully: {result}'
+  error_text: 'Error uploading configuration for subject class {subject_class_key}: {error}'
+- name: clear_subject_class_configuration
+  description: "Clear all network configurations for a subject class.\n\n    Args:\n        subject_class_key: Subject\
+    \ class key\n\n    Removes all configuration for the specified subject class.\n    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+    required:
+    - subject_class_key
+    title: clear_subject_class_configurationArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/network/configuration/{subject_class_key}
+  reply: text
+  ok_text: Configuration for subject class {subject_class_key} cleared successfully
+  error_text: 'Error clearing configuration for subject class {subject_class_key}: {error}'
+- name: get_subject_configuration
+  description: "Gets all network configuration for a subject.\n\n    Args:\n        subject_class_key: Subject class\
+    \ key\n        subject_key: Subject key\n\n    Returns all configuration for the specified subject.\n    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+      subject_key:
+        title: Subject Key
+        type: string
+    required:
+    - subject_class_key
+    - subject_key
+    title: get_subject_configurationArguments
+    type: object
+  method: GET
+  path: /onos/v1/network/configuration/{subject_class_key}/{subject_key}
+  reply: repr
+  error_text: 'Error retrieving configuration for subject {subject_key}: {error}'
+- name: upload_subject_configuration
+  description: "Upload multiple network configurations for a subject.\n\n    Args:\n        subject_class_key: Subject\
+    \ class key\n        subject_key: Subject key\n        config_data: Network configuration JSON rooted at the\
+    \ top node\n\n    Uploads configurations for the specified subject.\n    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+      subject_key:
+        title: Subject Key
+        type: string
+      config_data:
+        additionalProperties: true
+        title: Config Data
+        type: object
+    required:
+    - subject_class_key
+    - subject_key
+    - config_data
+    title: upload_subject_configurationArguments
+    type: object
+  method: POST
+  path: /onos/v1/network/configuration/{subject_class_key}/{subject_key}
+  body:
+    arg: config_data
+  reply: text
+  ok_text: 'Configuration for subject {subject_key} uploaded successfully: {result}'
+  error_text: 'Error uploading configuration for subject {subject_key}: {error}'
+- name: clear_subject_configuration
+  description: "Clear all network configurations for a subject.\n\n    Args:\n        subject_class_key: Subject\
+    \ class key\n        subject_key: Subject key\n\n    Removes all configuration for the specified subject.\n\
+    \    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+      subject_key:
+        title: Subject Key
+        type: string
+    required:
+    - subject_class_key
+    - subject_key
+    title: clear_subject_configurationArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/network/configuration/{subject_class_key}/{subject_key}
+  reply: text
+  ok_text: Configuration for subject {subject_key} cleared successfully
+  error_text: 'Error clearing configuration for subject {subject_key}: {error}'
+- name: get_specific_configuration
+  description: "Gets specific network configuration for a subject.\n\n    Args:\n        subject_class_key: Subject\
+    \ class key\n        subject_key: Subject key\n        config_key: Configuration class key\n\n    Returns specific\
+    \ configuration for the specified subject.\n    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+      subject_key:
+        title: Subject Key
+        type: string
+      config_key:
+        title: Config Key
+        type: string
+    required:
+    - subject_class_key
+    - subject_key
+    - config_key
+    title: get_specific_configurationArguments
+    type: object
+  method: GET
+  path: /onos/v1/network/configuration/{subject_class_key}/{subject_key}/{config_key}
+  reply: repr
+  error_text: 'Error retrieving {config_key} configuration for subject {subject_key}: {error}'
+- name: upload_specific_configuration
+  description: "Upload specific network configuration for a subject.\n\n    Args:\n        subject_class_key: Subject\
+    \ class key\n        subject_key: Subject key\n        config_key: Configuration class key\n        config_data:\
+    \ Network configuration JSON rooted at the top node\n\n    Uploads specific configuration for the specified\
+    \ subject.\n    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+      subject_key:
+        title: Subject Key
+        type: string
+      config_key:
+        title: Config Key
+        type: string
+      config_data:
+        additionalProperties: true
+        title: Config Data
+        type: object
+    required:
+    - subject_class_key
+    - subject_key
+    - config_key
+    - config_data
+    title: upload_specific_configurationArguments
+    type: object
+  method: POST
+  path: /onos/v1/network/configuration/{subject_class_key}/{subject_key}/{config_key}
+  body:
+    arg: config_data
+  reply: text
+  ok_text: '{config_key} configuration for subject {subject_key} uploaded successfully: {result}'
+  error_text: 'Error uploading {config_key} configuration for subject {subject_key}: {error}'
+- name: clear_specific_configuration
+  description: "Clear specific network configuration for a subject.\n\n    Args:\n        subject_class_key: Subject\
+    \ class key\n        subject_key: Subject key\n        config_key: Configuration class key\n\n    Removes specific\
+    \ configuration for the specified subject.\n    "
+  schema:
+    properties:
+      subject_class_key:
+        title: Subject Class Key
+        type: string
+      subject_key:
+        title: Subject Key
+        type: string
+      config_key:
+        title: Config Key
+        type: string
+    required:
+    - subject_class_key
+    - subject_key
+    - config_key
+    title: clear_specific_configurationArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/network/configuration/{subject_class_key}/{subject_key}/{config_key}
+  reply: text
+  ok_text: '{config_key} configuration for subject {subject_key} cleared successfully'
+  error_text: 'Error clearing {config_key} configuration for subject {subject_key}: {error}'
+- name: get_packet_processors
+  description: "Gets packet processors.\n\n    Returns array of all packet processors.\n    "
+  schema:
+    properties: {}
+    title: get_packet_processorsArguments
+    type: object
+  method: GET
+  path: /onos/v1/packet/processors
+  reply: repr
+  error_text: 'Error retrieving packet processors: {error}'
+- name: get_shortest_paths
+  description: "Gets all shortest paths between any two hosts or devices.\n\n    Args:\n        src: Source identifier\
+    \ (can be a device ID or host ID)\n        dst: Destination identifier (can be a device ID or host ID)\n\n \
+    \   Returns array of all shortest paths between any two elements.\n    "
+  schema:
+    properties:
+      src:
+        title: Src
+        type: string
+      dst:
+        title: Dst
+        type: string
+    required:
+    - src
+    - dst
+    title: get_shortest_pathsArguments
+    type: object
+  method: GET
+  path: /onos/v1/paths/{src}/{dst}
+  reply: repr
+  error_text: 'Error retrieving shortest paths from {src} to {dst}: {error}'
+- name: get_disjoint_paths
+  description: "Gets all shortest disjoint path pairs between any two hosts or devices.\n\n    Args:\n        src:\
+    \ Source identifier (can be a device ID or host ID)\n        dst: Destination identifier (can be a device ID\
+    \ or host ID)\n\n    Returns array of all shortest disjoint path pairs between any two elements.\n    "
+  schema:
+    properties:
+      src:
+        title: Src
+        type: string
+      dst:
+        title: Dst
+        type: string
+    required:
+    - src
+    - dst
+    title: get_disjoint_pathsArguments
+    type: object
+  method: GET
+  path: /onos/v1/paths/{src}/{dst}/disjoint
+  reply: repr
+  error_text: 'Error retrieving disjoint paths from {src} to {dst}: {error}'
+- name: get_all_regions
+  description: "Returns set of all regions.\n\n    Gets all network regions defined in the system.\n    "
+  schema:
+    properties: {}
+    title: get_all_regionsArguments
+    type: object
+  method: GET
+  path: /onos/v1/regions
+  reply: repr
+  error_text: 'Error retrieving regions: {error}'
+- name: get_region
+  description: "Returns the region with the specified identifier.\n\n    Args:\n        regionId: Region identifier\n\
+    \n    Gets detailed information about a specific region.\n    "
+  schema:
+    properties:
+      regionId:
+        title: Regionid
+        type: string
+    required:
+    - regionId
+    title: get_regionArguments
+    type: object
+  method: GET
+  path: /onos/v1/regions/{regionId}
+  reply: repr
+  error_text: 'Error retrieving region {regionId}: {error}'
+- name: update_region
+  description: "Updates the specified region using the supplied JSON input stream.\n\n    Args:\n        regionId:\
+    \ Region identifier\n        region_data: Updated region data including name, type, etc.\n\n    Updates an existing\
+    \ network region.\n    "
+  schema:
+    properties:
+      regionId:
+        title: Regionid
+        type: string
+      region_data:
+        additionalProperties: true
+        title: Region Data
+        type: object
+    required:
+    - regionId
+    - region_data
+    title: update_regionArguments
+    type: object
+  method: PUT
+  path: /onos/v1/regions/{regionId}
+  body:
+    arg: region_data
+  reply: text
+  ok_text: Region {regionId} updated successfully
+  error_text: 'Error updating region {regionId}: {error}'
+- name: remove_region
+  description: "Removes the specified region using the given region identifier.\n\n    Args:\n        regionId:\
+    \ Region identifier\n\n    Deletes a network region.\n    "
+  schema:
+    properties:
+      regionId:
+        title: Regionid
+        type: string
+    required:
+    - regionId
+    title: remove_regionArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/regions/{regionId}
+  reply: text
+  ok_text: Region {regionId} removed successfully
+  error_text: 'Error removing region {regionId}: {error}'
+- name: get_region_devices
+  description: "Returns the set of devices that belong to the specified region.\n\n    Args:\n        regionId:\
+    \ Region identifier\n\n    Gets all devices assigned to a specific region.\n    "
+  schema:
+    properties:
+      regionId:
+        title: Regionid
+        type: string
+    required:
+    - regionId
+    title: get_region_devicesArguments
+    type: object
+  method: GET
+  path: /onos/v1/regions/{regionId}/devices
+  reply: repr
+  error_text: 'Error retrieving devices for region {regionId}: {error}'
+- name: get_all_ports_statistics
+  description: "Gets port statistics of all devices.\n\n    Returns statistics for all ports across all devices.\n\
+    \    "
+  schema:
+    properties: {}
+    title: get_all_ports_statisticsArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/ports
+  reply: repr
+  error_text: 'Error retrieving port statistics: {error}'
+- name: get_device_port_statistics
+  description: "Gets port statistics of a specified device.\n\n    Args:\n        deviceId: Device identifier\n\n\
+    \    Returns port statistics for all ports on the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_port_statisticsArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/ports/{deviceId}
+  reply: repr
+  error_text: 'Error retrieving port statistics for device {deviceId}: {error}'
+- name: get_port_statistics
+  description: "Gets port statistics of a specified device and port.\n\n    Args:\n        deviceId: Device identifier\n\
+    \        port: Port number\n\n    Returns statistics for the specified port on the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      port:
+        title: Port
+        type: string
+    required:
+    - deviceId
+    - port
+    title: get_port_statisticsArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/ports/{deviceId}/{port}
+  reply: repr
+  error_text: 'Error retrieving statistics for port {port} on device {deviceId}: {error}'
+- name: get_all_ports_delta_statistics
+  description: "Gets port delta statistics of all devices.\n\n    Returns delta statistics for all ports across\
+    \ all devices.\n    "
+  schema:
+    properties: {}
+    title: get_all_ports_delta_statisticsArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/delta/ports
+  reply: repr
+  error_text: 'Error retrieving delta port statistics: {error}'
+- name: get_device_delta_port_statistics
+  description: "Gets port delta statistics of a specified device.\n\n    Args:\n        deviceId: Device identifier\n\
+    \n    Returns delta statistics for all ports on the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_delta_port_statisticsArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/delta/ports/{deviceId}
+  reply: repr
+  error_text: 'Error retrieving delta port statistics for device {deviceId}: {error}'
+- name: get_port_delta_statistics
+  description: "Gets port delta statistics of a specified device and port.\n\n    Args:\n        deviceId: Device\
+    \ identifier\n        port: Port number\n\n    Returns delta statistics for the specified port on the specified\
+    \ device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      port:
+        title: Port
+        type: string
+    required:
+    - deviceId
+    - port
+    title: get_port_delta_statisticsArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/delta/ports/{deviceId}/{port}
+  reply: repr
+  error_text: 'Error retrieving delta statistics for port {port} on device {deviceId}: {error}'
+- name: get_active_flow_entries
+  description: "Gets sum of active entries in all tables for all devices.\n\n    Returns count of active flow entries\
+    \ across all devices.\n    "
+  schema:
+    properties: {}
+    title: get_active_flow_entriesArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/flows/activeentries
+  reply: repr
+  error_text: 'Error retrieving active flow entries: {error}'
+- name: get_all_tables_statistics
+  description: "Gets table statistics for all tables of all devices.\n\n    Returns statistics for all flow tables\
+    \ across all devices.\n    "
+  schema:
+    properties: {}
+    title: get_all_tables_statisticsArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/flows/tables
+  reply: repr
+  error_text: 'Error retrieving table statistics: {error}'
+- name: get_device_tables_statistics
+  description: "Gets table statistics for all tables of a specified device.\n\n    Args:\n        deviceId: Device\
+    \ identifier\n\n    Returns statistics for all flow tables on the specified device.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+    required:
+    - deviceId
+    title: get_device_tables_statisticsArguments
+    type: object
+  method: GET
+  path: /onos/v1/statistics/flows/tables/{deviceId}
+  reply: repr
+  error_text: 'Error retrieving table statistics for device {deviceId}: {error}'
+- name: get_system_info
+  description: "Get high-level system information.\n\n    Returns version, basic summaries, memory usage, and other\
+    \ system details.\n    "
+  schema:
+    properties: {}
+    title: get_system_infoArguments
+    type: object
+  method: GET
+  path: /onos/v1/system
+  reply: repr
+  error_text: 'Error retrieving system information: {error}'
+- name: get_topology
+  description: "Gets overview of current topology.\n\n    Returns a summary of the current network topology.\n \
+    \   "
+  schema:
+    properties: {}
+    title: get_topologyArguments
+    type: object
+  method: GET
+  path: /onos/v1/topology
+  reply: repr
+  error_text: 'Error retrieving topology: {error}'
+- name: get_topology_clusters
+  description: "Gets overview of topology SCCs.\n\n    Returns information about Strongly Connected Components (SCCs)\
+    \ in the topology.\n    "
+  schema:
+    properties: {}
+    title: get_topology_clustersArguments
+    type: object
+  method: GET
+  path: /onos/v1/topology/clusters
+  reply: repr
+  error_text: 'Error retrieving topology clusters: {error}'
+- name: get_topology_cluster
+  description: "Gets details of a specific SCC.\n\n    Args:\n        cluster_id: ID of the cluster to query\n\n\
+    \    Returns details of the specified Strongly Connected Component.\n    "
+  schema:
+    properties:
+      cluster_id:
+        title: Cluster Id
+        type: integer
+    required:
+    - cluster_id
+    title: get_topology_clusterArguments
+    type: object
+  method: GET
+  path: /onos/v1/topology/clusters/{cluster_id}
+  reply: repr
+  error_text: 'Error retrieving cluster {cluster_id}: {error}'
+- name: get_cluster_devices
+  description: "Gets devices in a specific SCC.\n\n    Args:\n        cluster_id: ID of the cluster to query\n\n\
+    \    Returns devices in the specified Strongly Connected Component.\n    "
+  schema:
+    properties:
+      cluster_id:
+        title: Cluster Id
+        type: integer
+    required:
+    - cluster_id
+    title: get_cluster_devicesArguments
+    type: object
+  method: GET
+  path: /onos/v1/topology/clusters/{cluster_id}/devices
+  reply: repr
+  error_text: 'Error retrieving devices for cluster {cluster_id}: {error}'
+- name: get_cluster_links
+  description: "Gets links in specific SCC.\n\n    Args:\n        cluster_id: ID of the cluster to query\n\n   \
+    \ Returns links in the specified Strongly Connected Component.\n    "
+  schema:
+    properties:
+      cluster_id:
+        title: Cluster Id
+        type: integer
+    required:
+    - cluster_id
+    title: get_cluster_linksArguments
+    type: object
+  method: GET
+  path: /onos/v1/topology/clusters/{cluster_id}/links
+  reply: repr
+  error_text: 'Error retrieving links for cluster {cluster_id}: {error}'
+- name: is_infrastructure
+  description: "Tests if a connect point is infrastructure or edge.\n\n    Args:\n        connect_point: Device\
+    \ and port in format deviceid:portnumber\n\n    Returns whether the specified connect point is infrastructure\
+    \ or edge.\n    "
+  schema:
+    properties:
+      connect_point:
+        title: Connect Point
+        type: string
+    required:
+    - connect_point
+    title: is_infrastructureArguments
+    type: object
+  method: GET
+  path: /onos/v1/topology/infrastructure/{connect_point}
+  reply: repr
+  error_text: 'Error checking if {connect_point} is infrastructure: {error}'
+- name: is_broadcast
+  description: "Tests if a connect point is in broadcast set.\n\n    Args:\n        connect_point: Device and port\
+    \ in format deviceid:portnumber\n\n    Returns whether the specified connect point is in the broadcast set.\n\
+    \    "
+  schema:
+    properties:
+      connect_point:
+        title: Connect Point
+        type: string
+    required:
+    - connect_point
+    title: is_broadcastArguments
+    type: object
+  method: GET
+  path: /onos/v1/topology/broadcast/{connect_point}
+  reply: repr
+  error_text: 'Error checking if {connect_point} is in broadcast set: {error}'
+- name: get_all_intents
+  description: "Gets all intents in the system.\n\n    Args:\n        detail: Flag to return full details of intents\
+    \ in list\n\n    Returns array containing all the intents in the system.\n    "
+  schema:
+    properties:
+      detail:
+        default: false
+        title: Detail
+        type: boolean
+    title: get_all_intentsArguments
+    type: object
+  method: GET
+  path: /onos/v1/intents
+  query:
+    detail: detail
+  reply: repr
+  error_text: 'Error retrieving intents: {error}'
+- name: get_device_port_modulation
+  description: "Returns the supported modulation scheme for specified port of device.\n\n    Args:\n        device_id:\
+    \ Line port identifier\n        port_id: Line port identifier\n\n    Returns the supported modulation scheme\
+    \ for the specified port.\n    "
+  schema:
+    properties:
+      device_id:
+        title: Device Id
+        type: string
+      port_id:
+        title: Port Id
+        type: string
+    required:
+    - device_id
+    - port_id
+    title: get_device_port_modulationArguments
+    type: object
+  method: GET
+  path: /onos/v1/modulation/{device_id}/port
+  query:
+    port_id: port_id
+  reply: repr
+  error_text: 'Error retrieving modulation scheme for device {device_id}, port {port_id}: {error}'
+- name: add_flow
+  description: "\n    Add a flow rule to a device with comprehensive criteria and instruction support.\n\n    Args:\n\
+    \        device_id: Device ID to add the flow to\n        priority: Flow priority (higher values = higher priority)\n\
+    \        timeout: Flow timeout in seconds (0 for no timeout)\n        is_permanent: Whether the flow is permanent\n\
+    \        criteria: List of criteria dictionaries. Each criterion must have 'type' and associated fields.\n \
+    \               For example: [{\"type\": \"ETH_TYPE\", \"ethType\": \"0x88cc\"},\n                         \
+    \   {\"type\": \"IN_PORT\", \"port\": \"1\"}]\n        instructions: List of instruction dictionaries. Each\
+    \ instruction must have 'type' and associated fields.\n                    For example: [{\"type\": \"OUTPUT\"\
+    , \"port\": \"2\"},\n                                {\"type\": \"GROUP\", \"groupId\": 1}]\n    "
+  schema:
+    properties:
+      device_id:
+        title: Device Id
+        type: string
+      priority:
+        title: Priority
+        type: integer
+      timeout:
+        title: Timeout
+        type: integer
+      is_permanent:
+        title: Is Permanent
+        type: boolean
+      criteria:
+        items:
+          additionalProperties: true
+          type: object
+        title: Criteria
+        type: array
+      instructions:
+        items:
+          additionalProperties: true
+          type: object
+        title: Instructions
+        type: array
+    required:
+    - device_id
+    - priority
+    - timeout
+    - is_permanent
+    - criteria
+    - instructions
+    title: add_flowArguments
+    type: object
+  method: POST
+  path: /onos/v1/flows/{device_id}
+  body:
+    template:
+      priority: $priority
+      timeout: $timeout
+      isPermanent: $is_permanent
+      deviceId: $device_id
+      treatment:
+        instructions: $instructions
+      selector:
+        criteria: $criteria
+  reply: text
+  ok_text: 'Flow added successfully: {result}'
+  error_text: 'Error adding flow: {error}'
+- name: add_flows
+  description: "Create multiple flow rules.\n\n    Args:\n        appId: Application identifier\n        flows:\
+    \ List of flow rule specifications\n\n    Creates and installs multiple flow rules.\n    "
+  schema:
+    properties:
+      appId:
+        title: Appid
+        type: string
+      flows:
+        items:
+          additionalProperties: true
+          type: object
+        title: Flows
+        type: array
+    required:
+    - appId
+    - flows
+    title: add_flowsArguments
+    type: object
+  method: POST
+  path: /onos/v1/flows
+  body:
+    wrap: flows
+    arg: flows
+  reply: text
+  ok_text: 'Flow rules added successfully: {result}'
+  error_text: 'Error adding flow rules: {error}'
+- name: remove_flow
+  description: "Remove a specific flow rule.\n\n    Args:\n        deviceId: Device identifier\n        flowId:\
+    \ Flow rule identifier\n\n    Removes the specified flow rule.\n    "
+  schema:
+    properties:
+      deviceId:
+        title: Deviceid
+        type: string
+      flowId:
+        anyOf:
+        - type: string
+        - type: integer
+        title: Flowid
+    required:
+    - deviceId
+    - flowId
+    title: remove_flowArguments
+    type: object
+  method: DELETE
+  path: /onos/v1/flows/{deviceId}/{flowId}
+  quote: true
+  reply: text
+  ok_text: Flow {flowId} removed successfully from device {deviceId}
+  error_text: 'Error removing flow {flowId} from device {deviceId}: {error}'
+- name: get_network_summary
+  description: Get a high-level summary of the network including devices, links, and hosts.
+  schema:
+    properties: {}
+    title: get_network_summaryArguments
+    type: object
+  error_text: 'Error retrieving network summary: {error}'
+  steps:
+  - as: devices
+    method: GET
+    path: /onos/v1/devices
+  - as: links
+    method: GET
+    path: /onos/v1/links
+  - as: hosts
+    method: GET
+    path: /onos/v1/hosts
+  - as: topology
+    method: GET
+    path: /onos/v1/topology
+  reply:
+    text:
+    - '# Network Summary'
+    - '- Devices: {count:devices.devices}'
+    - '- Links: {count:links.links}'
+    - '- Hosts: {count:hosts.hosts}'
+    - '- Clusters: {topology.clusters|0}'
+    - |2-
+
+      ## Device Details
+    - each: devices.devices
+      line: '- {id}: {available?Available:Unavailable}, Manufacturer: {mfr|Unknown}, HW: {hw|Unknown}, SW: {sw|Unknown}'

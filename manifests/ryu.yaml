@@ -1,0 +1,580 @@
+# A controller manifest in the standard form (agentic-mcp.controller/v1).
+# Upload it to the agentic MCP and onboard the controller.
+# MANIFEST_FORMAT.md describes every section.
+manifest: agentic-mcp.controller/v1
+kind: ryu
+title: Ryu
+version: '1'
+domain: packet
+about: 'Ryu is an OpenFlow controller, used here for edge switches that put a site''s VLAN onto an uplink, with its ofctl_rest and rest_topology applications loaded.'
+recognise:
+  fingerprint: /stats/switches
+api:
+  style: json
+  docs:
+  - https://ryu.readthedocs.io/en/latest/app/ofctl_rest.html
+quirks:
+- Ryu publishes no description of its API that a program can read. Its operations come from its documentation page
+  and the short list in this manifest.
+- Ryu keeps no configuration of its own. A switch that restarts comes back with no flows, and they have to be put
+  back by whoever installed them.
+- A flow whose match has a misspelt field is accepted and the field is ignored, so the flow matches more than intended.
+  Bodies are checked before they are sent.
+- Links between switches are only reported when Ryu was started with --observe-links.
+- A VLAN in a match is the VLAN number plus 4096 (the OpenFlow 'present' bit).
+- A switch's own name is the name of its LOCAL port; the topology application leaves that port out, so it is read
+  from the port description of each switch.
+guide: 'A service on Ryu is a VLAN mapping on one switch: a client port''s untagged traffic is tagged and sent up
+  the uplink, and tagged traffic from the uplink is untagged and delivered. It is two flows, one per direction,
+  and one without the other carries traffic out and nothing back. Removing it removes exactly those two flows.'
+replay:
+  when_new_in: health
+  every_s: 15
+verbs:
+  read_devices:
+    operation: GET /v1.0/topology/switches
+    view:
+      rows: ''
+      id: dpid
+  read_device:
+    operation: GET /stats/desc/{dpid}
+  read_ports:
+    operation: GET /stats/portdesc/{dpid}
+  read_links:
+    operation: GET /v1.0/topology/links
+    view:
+      rows: ''
+      src: src.dpid
+      dst: dst.dpid
+      src_port: src.port_no
+      dst_port: dst.port_no
+  read_hosts:
+    operation: GET /v1.0/topology/hosts
+  read_services:
+    operation: GET /stats/flow/{dpid}
+  read_statistics:
+    operation: GET /stats/port/{dpid}
+  health:
+    operation: GET /stats/switches
+  provision:
+    arguments:
+      dpid: the switch's datapath id, as a number
+      client_port: the port the client is on
+      uplink_port: the port toward the core
+      vlan_id: the VLAN, 1 to 4094
+    policy:
+      max_per_hour: 30
+    steps:
+    - operation: POST /stats/flowentry/add
+      body:
+        dpid:
+          $num: $dpid
+        cookie: 0
+        table_id: 0
+        idle_timeout: 0
+        hard_timeout: 0
+        priority: 200
+        flags: 0
+        match:
+          in_port:
+            $int: $client_port
+        actions:
+        - type: PUSH_VLAN
+          ethertype: 33024
+        - type: SET_FIELD
+          field: vlan_vid
+          value:
+            $add:
+            - $vlan_id
+            - 4096
+        - type: OUTPUT
+          port:
+            $int: $uplink_port
+    - operation: POST /stats/flowentry/add
+      body:
+        dpid:
+          $num: $dpid
+        cookie: 0
+        table_id: 0
+        idle_timeout: 0
+        hard_timeout: 0
+        priority: 200
+        flags: 0
+        match:
+          in_port:
+            $int: $uplink_port
+          vlan_vid:
+            $add:
+            - $vlan_id
+            - 4096
+        actions:
+        - type: POP_VLAN
+        - type: OUTPUT
+          port:
+            $int: $client_port
+  teardown:
+    arguments:
+      dpid: the switch's datapath id, as a number
+      client_port: the port the client is on
+      uplink_port: the port toward the core
+      vlan_id: the VLAN, 1 to 4094
+    policy:
+      max_per_hour: 30
+    steps:
+    - operation: POST /stats/flowentry/delete_strict
+      body:
+        dpid:
+          $num: $dpid
+        cookie: 0
+        table_id: 0
+        idle_timeout: 0
+        hard_timeout: 0
+        priority: 200
+        flags: 0
+        match:
+          in_port:
+            $int: $client_port
+        actions: []
+    - operation: POST /stats/flowentry/delete_strict
+      body:
+        dpid:
+          $num: $dpid
+        cookie: 0
+        table_id: 0
+        idle_timeout: 0
+        hard_timeout: 0
+        priority: 200
+        flags: 0
+        match:
+          in_port:
+            $int: $uplink_port
+          vlan_vid:
+            $add:
+            - $vlan_id
+            - 4096
+        actions: []
+  adjust:
+    operation: POST /stats/flowentry/modify
+provides:
+  read_devices: ryu_list_switches
+  read_device: ryu_get_switch
+  read_ports: ryu_get_switch
+  read_links: ryu_get_topology
+  read_hosts: ryu_get_topology
+  read_services: ryu_get_flows
+  compute_path: ryu_compute_path
+  read_statistics: ryu_get_port_stats
+  provision: ryu_map_vlan
+  teardown: ryu_unmap_vlan
+  health: ryu_health_check
+operations:
+- method: GET
+  path: /stats/switches
+  summary: datapath ids of every switch
+- method: GET
+  path: /v1.0/topology/switches
+  summary: every switch with its ports
+- method: GET
+  path: /v1.0/topology/links
+  summary: every link between switches
+- method: GET
+  path: /v1.0/topology/hosts
+  summary: every host seen
+- method: GET
+  path: /stats/desc/{dpid}
+  summary: description of one switch
+- method: GET
+  path: /stats/flow/{dpid}
+  summary: flow entries of one switch
+- method: GET
+  path: /stats/port/{dpid}
+  summary: port counters of one switch
+- method: GET
+  path: /stats/portdesc/{dpid}
+  summary: ports of one switch
+- method: POST
+  path: /stats/flowentry/add
+  summary: add a flow entry
+  body: true
+- method: POST
+  path: /stats/flowentry/modify
+  summary: modify matching flow entries
+  body: true
+- method: POST
+  path: /stats/flowentry/delete_strict
+  summary: delete one flow entry
+  body: true
+tools:
+- name: ryu_health_check
+  description: Is Ryu reachable, and are the REST apps this server needs loaded.
+  schema:
+    properties: {}
+    title: ryu_health_checkArguments
+    type: object
+  steps:
+  - as: a
+    method: GET
+    path: /stats/switches
+    optional: true
+  - as: b
+    method: GET
+    path: /v1.0/topology/switches
+    optional: true
+  reply:
+    raw: true
+- name: ryu_get_topology
+  description: Switches, links between them, and discovered hosts.
+  schema:
+    properties:
+      raw:
+        default: false
+        title: Raw
+        type: boolean
+    title: ryu_get_topologyArguments
+    type: object
+  steps:
+  - as: sw
+    method: GET
+    path: /v1.0/topology/switches
+  - as: ln
+    method: GET
+    path: /v1.0/topology/links
+  - as: ho
+    method: GET
+    path: /v1.0/topology/hosts
+  - as: portdesc
+    foreach: sw.dpid
+    item: number
+    method: GET
+    path: /stats/portdesc/{item}
+  reply:
+    raw: true
+- name: ryu_compute_path
+  description: Shortest path between two switches over Ryu's discovered links. Read only. Accepts either dpid spelling.
+    Same switch in and out is a zero-hop path, which is the normal case for an edge site that meets the rest of
+    the network only through its uplink.
+  schema:
+    properties:
+      src_dpid:
+        title: Src Dpid
+        type: string
+      dst_dpid:
+        title: Dst Dpid
+        type: string
+    required:
+    - src_dpid
+    - dst_dpid
+    title: ryu_compute_pathArguments
+    type: object
+  steps:
+  - as: sw
+    method: GET
+    path: /v1.0/topology/switches
+  - as: ln
+    method: GET
+    path: /v1.0/topology/links
+  reply:
+    raw: true
+- name: ryu_list_switches
+  description: Connected datapaths, by id in both spellings Ryu uses.
+  schema:
+    properties: {}
+    title: ryu_list_switchesArguments
+    type: object
+  steps:
+  - as: sw
+    method: GET
+    path: /stats/switches
+  reply:
+    raw: true
+- name: ryu_get_switch
+  description: 'One switch: description and its ports with their state.'
+  schema:
+    properties:
+      dpid:
+        title: Dpid
+        type: string
+    required:
+    - dpid
+    title: ryu_get_switchArguments
+    type: object
+  convert:
+    dpid: number
+  steps:
+  - as: desc
+    method: GET
+    path: /stats/desc/{dpid}
+  - as: ports
+    method: GET
+    path: /stats/portdesc/{dpid}
+  reply:
+    raw: true
+- name: ryu_get_flows
+  description: Installed flows, with packet counters. Ryu's own punt flows hidden by default.
+  schema:
+    properties:
+      dpid:
+        title: Dpid
+        type: string
+      include_controller_defaults:
+        default: false
+        title: Include Controller Defaults
+        type: boolean
+    required:
+    - dpid
+    title: ryu_get_flowsArguments
+    type: object
+  convert:
+    dpid: number
+  steps:
+  - as: flows
+    method: GET
+    path: /stats/flow/{dpid}
+  reply:
+    raw: true
+- name: ryu_get_port_stats
+  description: Per-port packet, error and drop counters — evidence that traffic flows.
+  schema:
+    properties:
+      dpid:
+        title: Dpid
+        type: string
+    required:
+    - dpid
+    title: ryu_get_port_statsArguments
+    type: object
+  convert:
+    dpid: number
+  steps:
+  - as: stats
+    method: GET
+    path: /stats/port/{dpid}
+  reply:
+    raw: true
+- name: ryu_add_flow
+  description: 'Request a flow. Queued for operator approval; installs nothing by itself. actions use ofctl_rest
+    form, e.g. [{"type": "OUTPUT", "port": 3}].'
+  schema:
+    properties:
+      dpid:
+        title: Dpid
+        type: string
+      match:
+        additionalProperties: true
+        title: Match
+        type: object
+      actions:
+        items:
+          additionalProperties: true
+          type: object
+        title: Actions
+        type: array
+      priority:
+        default: 100
+        title: Priority
+        type: integer
+    required:
+    - dpid
+    - match
+    - actions
+    title: ryu_add_flowArguments
+    type: object
+  queue: true
+  summary: add flow on {dpid} match={match}
+  check:
+    keys:
+      match: &id001
+      - in_port
+      - dl_src
+      - dl_dst
+      - dl_type
+      - dl_vlan
+      - vlan_pcp
+      - nw_src
+      - nw_dst
+      - nw_proto
+      - tp_src
+      - tp_dst
+      - eth_src
+      - eth_dst
+      - eth_type
+      - vlan_vid
+      - ip_proto
+      - ipv4_src
+      - ipv4_dst
+      - tcp_src
+      - tcp_dst
+      - udp_src
+      - udp_dst
+      - metadata
+      - tunnel_id
+    each:
+      actions:
+        field: type
+        one_of:
+        - OUTPUT
+        - PUSH_VLAN
+        - POP_VLAN
+        - SET_FIELD
+        - GROUP
+        - SET_QUEUE
+        - DROP
+        - GOTO_TABLE
+        - WRITE_METADATA
+        - COPY_TTL_OUT
+        - COPY_TTL_IN
+        - DEC_NW_TTL
+        - SET_NW_TTL
+        - DEC_MPLS_TTL
+        - PUSH_MPLS
+        - POP_MPLS
+    between:
+      priority:
+      - 0
+      - 65535
+  steps:
+  - method: POST
+    path: /stats/flowentry/add
+    body:
+      template:
+        dpid:
+          $num: $dpid
+        cookie: 0
+        table_id: 0
+        idle_timeout: 0
+        hard_timeout: 0
+        priority:
+          $int: $priority
+        flags: 0
+        match: $match
+        actions: $actions
+- name: ryu_delete_flow
+  description: Request removal of exactly the flow with this match and priority.
+  schema:
+    properties:
+      dpid:
+        title: Dpid
+        type: string
+      match:
+        additionalProperties: true
+        title: Match
+        type: object
+      priority:
+        default: 100
+        title: Priority
+        type: integer
+    required:
+    - dpid
+    - match
+    title: ryu_delete_flowArguments
+    type: object
+  queue: true
+  summary: delete flow on {dpid} match={match}
+  check:
+    keys:
+      match: *id001
+    between:
+      priority:
+      - 0
+      - 65535
+  steps:
+  - method: POST
+    path: /stats/flowentry/delete_strict
+    body:
+      template:
+        dpid:
+          $num: $dpid
+        cookie: 0
+        table_id: 0
+        idle_timeout: 0
+        hard_timeout: 0
+        priority:
+          $int: $priority
+        flags: 0
+        match: $match
+        actions: []
+- name: ryu_map_vlan
+  description: 'Map a client port onto a VLAN on the uplink toward the core, both directions. The edge domain''s
+    handover: untagged client traffic is tagged and sent up; tagged traffic from the core is untagged and delivered.
+    Two flows.'
+  schema:
+    properties:
+      dpid:
+        title: Dpid
+        type: string
+      client_port:
+        title: Client Port
+        type: integer
+      uplink_port:
+        title: Uplink Port
+        type: integer
+      vlan_id:
+        title: Vlan Id
+        type: integer
+    required:
+    - dpid
+    - client_port
+    - uplink_port
+    - vlan_id
+    title: ryu_map_vlanArguments
+    type: object
+  verb: provision
+  queue: true
+  check: &id002
+    between:
+      vlan_id:
+      - 1
+      - 4094
+    distinct:
+    - - client_port
+      - uplink_port
+  summary: map {dpid} port {client_port} <-> uplink {uplink_port} vlan {vlan_id}
+- name: ryu_unmap_vlan
+  description: 'Remove a VLAN mapping: the exact inverse of ryu_map_vlan, both directions. Takes the same four arguments
+    the mapping was made with. Only those two flows are removed (strict match on match and priority), so other mappings
+    on the switch are untouched. Queued for approval like any write.'
+  schema:
+    properties:
+      dpid:
+        title: Dpid
+        type: string
+      client_port:
+        title: Client Port
+        type: integer
+      uplink_port:
+        title: Uplink Port
+        type: integer
+      vlan_id:
+        title: Vlan Id
+        type: integer
+    required:
+    - dpid
+    - client_port
+    - uplink_port
+    - vlan_id
+    title: ryu_unmap_vlanArguments
+    type: object
+  verb: teardown
+  queue: true
+  check: *id002
+  summary: unmap {dpid} port {client_port} <-> uplink {uplink_port} vlan {vlan_id}
+- name: ryu_approve_request
+  description: 'Approve and apply one queued write, for a host that confirmed it with a person. Needs the token
+    the operator configured on this server (RYU_MCP_APPROVER_TOKEN). With none configured this always refuses and
+    approval stays CLI-only. The token is a credential of the host system, not something a model chooses: a host
+    should present it only after its own human confirmation of this exact change.'
+  schema:
+    properties:
+      approval_id:
+        title: Approval Id
+        type: string
+      approver_token:
+        title: Approver Token
+        type: string
+    required:
+    - approval_id
+    - approver_token
+    title: ryu_approve_requestArguments
+    type: object
+  approve:
+    token_env: RYU_MCP_APPROVER_TOKEN

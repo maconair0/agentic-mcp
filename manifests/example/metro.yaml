@@ -1,0 +1,54 @@
+# A controller manifest in the standard form (agentic-mcp.controller/v1), for the
+# example controller (run_example_controller.py). See template.yaml to start a new one.
+manifest: agentic-mcp.controller/v1
+kind: example_metro
+title: Example metro controller
+version: "1"
+domain: packet
+about: >
+  A small controller used to show how a new kind is added. It publishes an
+  OpenAPI document, so its operations are read from the controller.
+recognise:
+  operation_contains: /api/switches
+quirks:
+  - A service needs name, a_end and z_end; without all three it answers 400.
+guide: >
+  A service on this controller joins two switches on one VLAN. Create it with a
+  name and the two switches; remove it by its name.
+verbs:
+  read_devices:
+    operation: GET /api/switches
+    view: {rows: switches, id: id, name: name, type: kind, status: status}
+  read_device:
+    operation: GET /api/switches/{id}
+  read_links:
+    operation: GET /api/links
+    view: {rows: links, src: src, dst: dst}
+  read_hosts:
+    operation: GET /api/hosts
+    view: {rows: hosts}
+  read_services:
+    operation: GET /api/services
+    view: {rows: services, id: name, name: name, status: state, a_end: a_end, z_end: z_end}
+  read_service:
+    operation: GET /api/services/{name}
+  compute_path:
+    operation: GET /api/paths/{src}/{dst}
+  health:
+    operation: GET /api/health
+  provision:
+    operation: POST /api/services
+    arguments:
+      name: a name for the service
+      a_end: the switch at one end
+      z_end: the switch at the other end
+      vlan: the VLAN it uses
+    body: {name: $name, a_end: $a_end, z_end: $z_end, vlan: {$int: $vlan}}
+    policy: {max_per_hour: 20}
+  adjust:
+    operation: PUT /api/services/{name}
+    arguments: {name: the service, a_end: the switch at one end, z_end: its new far end}
+    body: {name: $name, a_end: $a_end, z_end: $z_end}
+  teardown:
+    operation: DELETE /api/services/{name}
+    arguments: {name: the service to remove}
