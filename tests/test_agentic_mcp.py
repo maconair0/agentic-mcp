@@ -33,7 +33,7 @@ class StandAloneTests(unittest.TestCase):
         import ast
         import sys
         allowed = set(sys.stdlib_module_names) | {"agentic_mcp", "requests", "yaml", "fastapi", "uvicorn",
-                                                  "starlette", "mcp", "pypdf", "jsonschema"}
+                                                  "starlette", "anyio", "mcp", "pypdf", "jsonschema"}
         for folder, _, files in os.walk(os.path.join(ROOT, "agentic_mcp")):
             for name in files:
                 if not name.endswith(".py"):
