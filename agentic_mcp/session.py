@@ -99,6 +99,16 @@ class Session:
         # A read that got no answer at all is asked once more: a connection
         # dropped between two requests is not the controller being down. A
         # write is never repeated here: it may have arrived.
+        full = tracker.enter(key)
+        if full:
+            return 0, "", f"NotAsked: {full}"
+        try:
+            return self._ask(tracker, key, write, method, url, body, timeout, params, headers)
+        finally:
+            tracker.leave(key)
+
+    def _ask(self, tracker: Any, key: str, write: bool, method: str, url: str, body: Any, timeout: float,
+             params: Optional[Dict[str, Any]], headers: Optional[Dict[str, str]]) -> Tuple[int, str, str]:
         for attempt in range(1 if write else 2):
             started = time.monotonic()
             try:

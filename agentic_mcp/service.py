@@ -104,25 +104,32 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
     @app.get("/health")
     def health():
         return {"ok": True, "service": "agentic-mcp", "uptime_s": round(time.time() - STARTED),
-                "controllers": desk.keys(), "kinds": [k["kind"] for k in desk.kinds()],
+                "controllers": desk.keys(), "holding": len(desk.keys()), "kinds": [k["kind"] for k in desk.kinds()],
                 "model": _agent.model_info(), "mcp": getattr(app.state, "mcp", ""),
                 "sessions": {r["controller"]: r["state"] for r in tracker.view()}}
 
     @app.get("/topology")
     def topology():
         """Itself and every controller it holds, for whoever draws the picture."""
+        from .sessions import each
+        keys = desk.keys()
+        state = {r["controller"]: r for r in tracker.view()}
+
+        def one(key):
+            return desk.describe(key), desk.reachable(key)
         rows = []
-        for key in desk.keys():
-            try:
-                d = desk.describe(key)
-                why = desk.reachable(key)
-            except Exception as exc:  # noqa: BLE001
-                d, why = {"key": key, "label": key}, str(exc)
+        # All of them at once: the picture takes as long as the slowest one
+        # allowed (3 s), not the sum, and one that fails is one row.
+        for key, got in each(keys, one, wait_s=3.0).items():
+            d, why = got["value"] if got["ok"] else ({"key": key, "label": key}, got["error"])
             rows.append({**{k: v for k, v in d.items() if k != "conformance"},
                          "verdict": (d.get("conformance") or {}).get("verdict", ""),
-                         "reachable": not why, "why": why})
-        return {"agent": {"name": "Agentic MCP", "model": _agent.model_info(),
-                          "kinds": len(desk.kinds())}, "controllers": rows}
+                         "reachable": not why, "why": why,
+                         "session": (state.get(key) or {}).get("state", "not asked yet")})
+        up = sum(1 for r in rows if r["reachable"])
+        return {"agent": {"name": "Agentic MCP", "model": _agent.model_info(), "kinds": len(desk.kinds()),
+                          "controllers": len(rows), "reachable": up, "uptime_s": round(time.time() - STARTED)},
+                "controllers": rows}
 
     @app.get("/queue")
     def queue(controller: str = ""):
@@ -354,6 +361,14 @@ def serve(host: str = "127.0.0.1", port: int = 8400) -> None:
     app = create_app()
     from . import sessions as _sessions
     _sessions.BREAKER = True
+
+    @app.on_event("startup")
+    async def _room() -> None:
+        # Requests are served on threads. Enough of them that every controller
+        # can have its whole share waiting and the others are still served.
+        import anyio.to_thread
+        want = int(os.getenv("AGENTIC_MCP_THREADS", "0")) or max(64, _sessions.SLOTS * (len(app.state.desk.keys()) + 2))
+        anyio.to_thread.current_default_thread_limiter().total_tokens = want
     _watch(app.state.desk)
     logging.getLogger("agentic_mcp.service").info(
         "agentic MCP up on %s:%s, holding %s", host, port, ", ".join(app.state.desk.keys()) or "no controller yet")
@@ -370,20 +385,33 @@ def _watch(desk: Desk, every_s: float = float(os.getenv("AGENTIC_MCP_WATCH_S", "
     from . import sessions as _sessions
     log = logging.getLogger("agentic_mcp.service")
 
+    looking: set = set()
+
+    def look(key: str) -> None:
+        try:
+            known = {r["controller"]: r for r in _sessions.TRACKER.view()}.get(key) or {}
+            if known.get("last_ok") and time.time() - known["last_ok"] < every_s and known.get("state") == _sessions.UP:
+                return                                # it answered somebody a moment ago
+            seat = desk.seat(key)
+            entry = (seat.manifest.get("verbs") or {}).get("health") or {}
+            if entry.get("operation"):
+                seat.session.read("health")
+            else:
+                seat.session.fetch("GET", seat.manifest["base_url"])
+        except Exception as exc:  # noqa: BLE001 - the watch itself never stops
+            log.debug("%s: not looked at (%s)", key, exc)
+        finally:
+            looking.discard(key)
+
     def loop():
         while True:
             time.sleep(every_s)
+            # Each controller is looked at on a thread of its own, so one that
+            # hangs for a whole timeout does not make the others' look late. A
+            # controller still being looked at from last time is not asked twice.
             for key in desk.keys():
-                try:
-                    known = {r["controller"]: r for r in _sessions.TRACKER.view()}.get(key) or {}
-                    if known.get("last_ok") and time.time() - known["last_ok"] < every_s and known.get("state") == _sessions.UP:
-                        continue                      # it answered somebody a moment ago
-                    seat = desk.seat(key)
-                    entry = (seat.manifest.get("verbs") or {}).get("health") or {}
-                    if entry.get("operation"):
-                        seat.session.read("health")
-                    else:
-                        seat.session.fetch("GET", seat.manifest["base_url"])
-                except Exception as exc:  # noqa: BLE001 - the watch itself never stops
-                    log.debug("%s: not looked at (%s)", key, exc)
+                if key in looking:
+                    continue
+                looking.add(key)
+                threading.Thread(target=look, args=(key,), name=f"watch-{key}", daemon=True).start()
     threading.Thread(target=loop, name="session-watch", daemon=True).start()

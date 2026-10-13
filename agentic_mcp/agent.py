@@ -252,50 +252,66 @@ def ask(desk: Any, text: str, confirm: bool = False, approved_by: str = "") -> D
     if writes and len(targets) != 1:
         out.update(ok=False, answer="A change names the one controller it is for.")
         return out
-    parts, data = [], {}
-    for key in targets:
-        label = known[key]["label"]
-        entry = ((desk.manifest(key) or {}).get("verbs") or {}).get(action) or {}
-        if not entry.get("operation"):
-            parts.append(f"{label}: has nothing for {action.replace('_', ' ')}.")
-            continue
-        try:
-            if writes:
-                dry = desk.dry_run(key, action, **args)
-                data[key] = dry
-                shown = [f"{label}, dry run of {action.replace('_', ' ')}:"] + [
-                    f"  {r['method']} {r['url']}" + (f"  {json.dumps(r['body'])[:300]}" if r.get("body") is not None else "")
-                    for r in dry.get("requests") or []]
-                problems = list(dry.get("problems") or []) + ([dry["error"]] if dry.get("error") else [])
-                if problems:
-                    shown.append("  It cannot be sent: " + "; ".join(problems))
-                elif not dry.get("confirmed"):
-                    shown.append("  Its mapping has not been confirmed, so it cannot be sent yet.")
-                elif confirm and approved_by.strip():
-                    sent = desk.write(key, action, approved_by=approved_by, **args)
-                    data[key] = sent
-                    shown.append(f"  Sent, approved by {approved_by}: " + (f"answered {sent.get('status')}"
-                                 if sent.get("ok") else f"refused: {sent.get('error')}"))
-                    out["ok"] = bool(sent.get("ok"))
+    def one(key):
+        parts, data, flag = [], {}, [True]
+        for key in [key]:
+            label = known[key]["label"]
+            entry = ((desk.manifest(key) or {}).get("verbs") or {}).get(action) or {}
+            if not entry.get("operation"):
+                parts.append(f"{label}: has nothing for {action.replace('_', ' ')}.")
+                continue
+            try:
+                if writes:
+                    dry = desk.dry_run(key, action, **args)
+                    data[key] = dry
+                    shown = [f"{label}, dry run of {action.replace('_', ' ')}:"] + [
+                        f"  {r['method']} {r['url']}" + (f"  {json.dumps(r['body'])[:300]}" if r.get("body") is not None else "")
+                        for r in dry.get("requests") or []]
+                    problems = list(dry.get("problems") or []) + ([dry["error"]] if dry.get("error") else [])
+                    if problems:
+                        shown.append("  It cannot be sent: " + "; ".join(problems))
+                    elif not dry.get("confirmed"):
+                        shown.append("  Its mapping has not been confirmed, so it cannot be sent yet.")
+                    elif confirm and approved_by.strip():
+                        sent = desk.write(key, action, approved_by=approved_by, **args)
+                        data[key] = sent
+                        shown.append(f"  Sent, approved by {approved_by}: " + (f"answered {sent.get('status')}"
+                                     if sent.get("ok") else f"refused: {sent.get('error')}"))
+                        flag[0] = bool(sent.get("ok"))
+                    else:
+                        shown.append("  Nothing was sent. Ask again with confirm and who approved it to send it.")
+                    parts.append("\n".join(shown))
+                    continue
+                read = desk.read(key, action, **args)
+                data[key] = read.get("rows", read.get("data"))
+                if not read.get("ok"):
+                    parts.append(f"{label}: {read.get('error')}")
+                    continue
+                items = read["rows"] if "rows" in read else find_rows(read.get("data"))
+                if action == "health":
+                    parts.append(f"{label}: answering.")
+                elif "rows" in read and not items:
+                    parts.append(f"{label}: none.")
+                elif items:
+                    parts.append(f"{label}: {len(items)} {action.split('_', 1)[-1]}\n" + "\n".join(_lines(items)))
                 else:
-                    shown.append("  Nothing was sent. Ask again with confirm and who approved it to send it.")
-                parts.append("\n".join(shown))
-                continue
-            read = desk.read(key, action, **args)
-            data[key] = read.get("rows", read.get("data"))
-            if not read.get("ok"):
-                parts.append(f"{label}: {read.get('error')}")
-                continue
-            items = read["rows"] if "rows" in read else find_rows(read.get("data"))
-            if action == "health":
-                parts.append(f"{label}: answering.")
-            elif "rows" in read and not items:
-                parts.append(f"{label}: none.")
-            elif items:
-                parts.append(f"{label}: {len(items)} {action.split('_', 1)[-1]}\n" + "\n".join(_lines(items)))
-            else:
-                parts.append(f"{label}: " + (json.dumps(read.get("data"))[:400] if read.get("data") else "nothing"))
-        except Exception as exc:  # noqa: BLE001
-            parts.append(f"{label}: {exc}")
+                    parts.append(f"{label}: " + (json.dumps(read.get("data"))[:400] if read.get("data") else "nothing"))
+            except Exception as exc:  # noqa: BLE001
+                parts.append(f"{label}: {exc}")
+        return parts, data, flag[0]
+
+    # Each controller is asked on a thread of its own: one that is slow or
+    # down is its own line in the answer and does not keep the others waiting.
+    from .sessions import each
+    parts, data = [], {}
+    for key, got in each(targets, one, wait_s=25.0).items():
+        if not got["ok"]:
+            parts.append(f"{known[key]['label']}: {got['error']}")
+            continue
+        p, d, fine = got["value"]
+        parts += p
+        data.update(d)
+        if not fine:
+            out["ok"] = False
     out.update(answer="\n\n".join(parts), data=data)
     return out

@@ -37,12 +37,48 @@ UP, DEGRADED, DOWN, UNKNOWN = "up", "degraded", "down", "not asked yet"
 BREAKER = False
 
 
+# How many requests may be on their way to one controller at once. A controller
+# that has stopped answering holds each of its callers for a whole timeout; with
+# a share of its own it cannot take the threads the other controllers' callers
+# need. Past it a caller is told at once.
+SLOTS = int(os.getenv("AGENTIC_MCP_PER_CONTROLLER", "24"))
+
+
+def each(keys: List[str], fn: Any, wait_s: float = 10.0) -> Dict[str, Dict[str, Any]]:
+    """Ask the same of several controllers at the same time.
+
+    {key: {"ok": True, "value": ...} | {"ok": False, "error": "..."}}, in the
+    order asked. Each controller has a thread of its own, so one that is slow
+    or fails costs the others nothing; one that has not answered within
+    `wait_s` is reported as late and left to finish on its own."""
+    out: Dict[str, Dict[str, Any]] = {k: {"ok": False, "error": f"no answer within {wait_s:g} s", "late": True} for k in keys}
+    if not keys:
+        return out
+
+    def run(key: str) -> None:
+        try:
+            out[key] = {"ok": True, "value": fn(key)}
+        except Exception as exc:  # noqa: BLE001 - one controller's failure is its own answer
+            out[key] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    if len(keys) == 1:
+        run(keys[0])
+        return out
+    threads = [threading.Thread(target=run, args=(k,), name=f"each-{k}", daemon=True) for k in keys]
+    for t in threads:
+        t.start()
+    deadline = time.monotonic() + wait_s
+    for t in threads:
+        t.join(max(0.0, deadline - time.monotonic()))
+    return dict(out)
+
+
 class Tracker:
     def __init__(self, path: str = ""):
         self.path = path
         self._lock = threading.RLock()
         self._s: Dict[str, Dict[str, Any]] = {}
         self._times: Dict[str, deque] = {}
+        self._busy: Dict[str, int] = {}
         self._saved = 0.0
         if path:
             try:
@@ -78,6 +114,20 @@ class Tracker:
                 return (f"{key} did not answer {rec['failures_in_a_row']} times in a row "
                         f"({rec['last_error'][:120]}); it is asked again in {left:.0f} s")
             return ""
+
+    def enter(self, key: str) -> str:
+        """Take one of the controller's places; "" when there was one, else why not."""
+        with self._lock:
+            now = self._busy.get(key, 0)
+            if BREAKER and now >= SLOTS:
+                return (f"{key} already has {now} requests waiting for it, which is all it is given; "
+                        f"the other controllers are not held up by it")
+            self._busy[key] = now + 1
+            return ""
+
+    def leave(self, key: str) -> None:
+        with self._lock:
+            self._busy[key] = max(0, self._busy.get(key, 0) - 1)
 
     # --- told after a request ---
 
@@ -148,6 +198,7 @@ class Tracker:
                 times = sorted(self._times.get(name) or [])
                 out.append({**{k: v for k, v in rec.items() if k not in ("pause_s",)},
                             "breaker": "open" if rec["open_until"] > time.time() else "closed",
+                            "in_flight": self._busy.get(name, 0), "slots": SLOTS,
                             "for_s": round(time.time() - float(rec.get("since") or time.time())),
                             "answers_ms": ({"median": round(times[len(times) // 2], 1),
                                             "p95": round(times[int(0.95 * (len(times) - 1))], 1),

@@ -2,6 +2,8 @@ requests>=2.28
 PyYAML>=6.0
 fastapi>=0.110
 uvicorn>=0.27
+# Comes with fastapi; named because the service sets how many requests it serves at once with it.
+anyio>=3.7
 jsonschema>=4.0
 # MCP over SSE (/mcp/sse). Without it the HTTP API still runs.
 mcp>=1.2,<2

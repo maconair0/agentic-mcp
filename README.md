@@ -205,6 +205,12 @@ shows it; it is kept on disk and every change of state is logged.
   a while (20 s, doubling to 5 minutes). Callers are told at once; the
   controller is not hammered while it is down; one request after the pause
   decides.
+- Any number of controllers are held side by side. Each has its own session,
+  its own connections and its own share of requests in flight (24;
+  `AGENTIC_MCP_PER_CONTROLLER`). A controller that hangs fills only its own
+  share: its further callers are told at once, and the other controllers'
+  callers are served as before. The 30 s look, the topology and a question
+  put to several controllers ask each on a thread of its own.
 - A read that got no answer is asked once more. A write never is: it may have
   arrived.
 - Every controller is looked at every 30 s whether or not anybody uses it.
@@ -242,6 +248,8 @@ Nothing else needs to change for it to be checked.
 | `AGENTIC_MCP_MODEL_GPU=0` | keep the model on the CPU |
 | `AGENTIC_MCP_TIMEOUT` | seconds to wait for a controller (20) |
 | `AGENTIC_MCP_CONNECTIONS` | connections kept to each controller (32) |
+| `AGENTIC_MCP_PER_CONTROLLER` | requests that may be on their way to one controller at once (24) |
+| `AGENTIC_MCP_THREADS` | requests served at once in all (enough for every controller's share, at least 64) |
 
 ## What it does not do
 

@@ -188,3 +188,39 @@ class ServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SideBySideTests(unittest.TestCase):
+    """Any number of controllers, each on its own: one that hangs or fails
+    costs the others nothing."""
+
+    def test_one_slow_controller_does_not_hold_up_the_others(self):
+        import time
+        from agentic_mcp import sessions
+
+        def ask(key):
+            if key == "stuck":
+                time.sleep(3)
+            if key == "broken":
+                raise RuntimeError("it fell over")
+            return key.upper()
+        keys = ["stuck", "broken"] + [f"c{i}" for i in range(40)]
+        started = time.monotonic()
+        got = sessions.each(keys, ask, wait_s=0.5)
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(list(got), keys)                                  # in the order asked
+        self.assertEqual([got[f"c{i}"]["value"] for i in range(40)], [f"C{i}" for i in range(40)])
+        self.assertTrue(got["stuck"]["late"])
+        self.assertIn("it fell over", got["broken"]["error"])
+
+    def test_a_controller_has_a_share_of_its_own_and_no_more(self):
+        from unittest import mock
+        from agentic_mcp import sessions
+        t = sessions.Tracker()
+        with mock.patch.object(sessions, "BREAKER", True), mock.patch.object(sessions, "SLOTS", 3):
+            self.assertEqual([t.enter("slow") for _ in range(3)], ["", "", ""])
+            self.assertIn("all it is given", t.enter("slow"))             # told at once, not queued
+            self.assertEqual(t.enter("other"), "")                         # and nobody else is affected
+            t.leave("slow")
+            self.assertEqual(t.enter("slow"), "")
+            self.assertEqual(t._busy["slow"], 3)
