@@ -41,6 +41,35 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
     token = os.getenv("AGENTIC_MCP_TOKEN", "").strip()
     app = FastAPI(title="Agentic MCP", version="1")
     app.state.desk = desk
+    from . import sessions as _sessions
+    tracker = _sessions.use(os.path.join(desk.data, "sessions.json"))
+
+    @app.exception_handler(Exception)
+    async def anything_else(request: Request, exc: Exception):
+        # Whatever goes wrong inside a request is that request's answer, with
+        # an id to find it in the log by. It is never the service going down
+        # or a traceback sent to the caller.
+        import logging
+        import uuid
+        ref = uuid.uuid4().hex[:8]
+        logging.getLogger("agentic_mcp.service").exception("request %s %s failed [%s]", request.method,
+                                                           request.url.path, ref)
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}", "ref": ref}, status_code=500)
+
+    @app.get("/sessions")
+    def all_sessions(text: bool = False):
+        """Every controller's session: its state, since when, how it answers."""
+        known = {r["controller"]: r for r in tracker.view()}
+        rows = [known.get(key) or {"controller": key, "state": _sessions.UNKNOWN, "for_s": 0, "requests": 0,
+                                   "errors": 0, "writes": 0, "last_ok": None, "last_error": "", "last_error_at": None,
+                                   "breaker": "closed", "answers_ms": None, "history": []} for key in desk.keys()]
+        return PlainTextResponse(_sessions.text(rows)) if text else {"sessions": rows}
+
+    @app.get("/sessions/{key}")
+    def one_session(key: str):
+        seat_or_404(key)
+        return (tracker.view(key) or [{"controller": key, "state": _sessions.UNKNOWN}])[0]
 
     class Guard:
         """Reading the service is open; changing anything is not, and neither
@@ -76,7 +105,8 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
     def health():
         return {"ok": True, "service": "agentic-mcp", "uptime_s": round(time.time() - STARTED),
                 "controllers": desk.keys(), "kinds": [k["kind"] for k in desk.kinds()],
-                "model": _agent.model_info(), "mcp": getattr(app.state, "mcp", "")}
+                "model": _agent.model_info(), "mcp": getattr(app.state, "mcp", ""),
+                "sessions": {r["controller"]: r["state"] for r in tracker.view()}}
 
     @app.get("/topology")
     def topology():
@@ -245,6 +275,8 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
                          {"key": {"type": "string"}, "url": {"type": "string"}, "kind": {"type": "string"},
                           "user_env": {"type": "string"}, "password_env": {"type": "string"}}),
         "desk_kinds": ("Every kind of controller there is a manifest for.", {}),
+        "desk_sessions": ("Every controller's session: up, degraded or down, since when, requests, errors, "
+                          "how long it takes to answer.", {}),
     }
 
     def public(key: str, name: str) -> str:
@@ -278,6 +310,9 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
                 return json.dumps([{k: v for k, v in desk.describe(key).items() if k != "conformance"}
                                    | {"verdict": desk.describe(key)["conformance"]["verdict"]}
                                    for key in desk.keys()], indent=1)
+            if name == "desk_sessions":
+                from . import sessions as _s
+                return _s.text(_s.TRACKER.view())
             if name == "desk_kinds":
                 return json.dumps(desk.kinds(), indent=1)
             if name == "desk_ask":
@@ -316,4 +351,39 @@ def serve(host: str = "127.0.0.1", port: int = 8400) -> None:
     # What the service does by itself (a replay, a controller that stopped
     # answering) is said in its log; each request is not.
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    uvicorn.run(create_app(), host=host, port=port, log_level="warning")
+    app = create_app()
+    from . import sessions as _sessions
+    _sessions.BREAKER = True
+    _watch(app.state.desk)
+    logging.getLogger("agentic_mcp.service").info(
+        "agentic MCP up on %s:%s, holding %s", host, port, ", ".join(app.state.desk.keys()) or "no controller yet")
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
+def _watch(desk: Desk, every_s: float = float(os.getenv("AGENTIC_MCP_WATCH_S", "30"))) -> None:
+    """Look at every controller from time to time, whether or not anybody is
+    asking it anything: a controller that goes away is then known, and logged,
+    when it goes and not when it is next needed."""
+    import logging
+    import threading
+
+    from . import sessions as _sessions
+    log = logging.getLogger("agentic_mcp.service")
+
+    def loop():
+        while True:
+            time.sleep(every_s)
+            for key in desk.keys():
+                try:
+                    known = {r["controller"]: r for r in _sessions.TRACKER.view()}.get(key) or {}
+                    if known.get("last_ok") and time.time() - known["last_ok"] < every_s and known.get("state") == _sessions.UP:
+                        continue                      # it answered somebody a moment ago
+                    seat = desk.seat(key)
+                    entry = (seat.manifest.get("verbs") or {}).get("health") or {}
+                    if entry.get("operation"):
+                        seat.session.read("health")
+                    else:
+                        seat.session.fetch("GET", seat.manifest["base_url"])
+                except Exception as exc:  # noqa: BLE001 - the watch itself never stops
+                    log.debug("%s: not looked at (%s)", key, exc)
+    threading.Thread(target=loop, name="session-watch", daemon=True).start()

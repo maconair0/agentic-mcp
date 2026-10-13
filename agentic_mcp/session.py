@@ -87,13 +87,39 @@ class Session:
         Every request to this controller goes through here, whichever tool
         made it, so there is one place that holds its address and credentials.
         """
-        try:
-            r = self.http.request(method, url, json=body, auth=self._auth(), timeout=timeout,
-                                  params=params,
-                                  headers=headers or {"Accept": "application/json, */*;q=0.5"})
-        except requests.RequestException as exc:
-            return 0, "", f"{type(exc).__name__}: {exc}"
-        return r.status_code, r.headers.get("content-type", ""), r.text
+        from . import sessions
+        key = str(self.manifest.get("key") or self.host)
+        tracker = sessions.TRACKER
+        write = str(method).upper() != "GET"
+        held = tracker.allow(key)
+        if held:
+            # The breaker is open: said at once, without waiting out a timeout
+            # and without one more request to a controller that is not there.
+            return 0, "", f"NotAsked: {held}"
+        # A read that got no answer at all is asked once more: a connection
+        # dropped between two requests is not the controller being down. A
+        # write is never repeated here: it may have arrived.
+        for attempt in range(1 if write else 2):
+            started = time.monotonic()
+            try:
+                r = self.http.request(method, url, json=body, auth=self._auth(), timeout=timeout,
+                                      params=params,
+                                      headers=headers or {"Accept": "application/json, */*;q=0.5"})
+            except requests.RequestException as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                if attempt == 0 and not write and not isinstance(exc, requests.Timeout):
+                    time.sleep(0.2)
+                    continue
+                tracker.record(key, 0, (time.monotonic() - started) * 1000, error, write)
+                return 0, "", error
+            except Exception as exc:  # noqa: BLE001 - nothing a controller sends may take this service down
+                error = f"{type(exc).__name__}: {exc}"
+                tracker.record(key, 0, (time.monotonic() - started) * 1000, error, write)
+                return 0, "", error
+            tracker.record(key, r.status_code, (time.monotonic() - started) * 1000,
+                           f"HTTP {r.status_code}: {r.text[:120]}" if r.status_code >= 500 else "", write)
+            return r.status_code, r.headers.get("content-type", ""), r.text
+        return 0, "", "no answer"
 
     def _url(self, op: Dict[str, Any], params: Dict[str, Any]) -> str:
         given = {**(self.manifest.get("defaults") or {}), **params}

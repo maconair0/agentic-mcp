@@ -195,6 +195,8 @@ class Desk:
             except OSError:
                 pass
         self.close(key)
+        from . import sessions
+        sessions.TRACKER.forget(key)
         return gone
 
     def kinds(self) -> List[Dict[str, Any]]:

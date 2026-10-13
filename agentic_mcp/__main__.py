@@ -6,6 +6,7 @@
   python -m agentic_mcp learn <kind> <user guide>    draft a manifest from a guide or API document
   python -m agentic_mcp kinds                        the kinds there is a manifest for
   python -m agentic_mcp list
+  python -m agentic_mcp sessions                     every controller's session: state, errors, answer times
   python -m agentic_mcp show [<key>]
   python -m agentic_mcp read <key> <verb> [name=value ...]
   python -m agentic_mcp tools <key>
@@ -60,6 +61,7 @@ def main(argv=None) -> int:
     on.add_argument("--docs", action="append", default=[], help="a documentation page to read operations from")
     sub.add_parser("list")
     sub.add_parser("kinds")
+    sub.add_parser("sessions")
     sv = sub.add_parser("serve", help="run the agentic MCP as a service of its own")
     sv.add_argument("--host", default=os.getenv("AGENTIC_MCP_BIND", "127.0.0.1"))
     sv.add_argument("--port", type=int, default=int(os.getenv("AGENTIC_MCP_PORT", "8400")))
@@ -129,6 +131,17 @@ def main(argv=None) -> int:
         u = got.get("understood") or {}
         print(f"\n(understood as {u.get('action')} on {u.get('controller')}, by {u.get('by')}, {u.get('ms')} ms)")
         return 0 if got.get("ok") else 1
+    if args.cmd == "sessions":
+        import requests as _rq
+        where = os.getenv("AGENTIC_MCP_ADDRESS", "http://127.0.0.1:%s" % os.getenv("AGENTIC_MCP_PORT", "8400"))
+        try:
+            print(_rq.get(where.rstrip("/") + "/sessions", params={"text": "true"}, timeout=10).text)
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"the agentic MCP at {where} is not answering ({type(exc).__name__}); its last record:", file=sys.stderr)
+            from . import sessions
+            print(sessions.text(sessions.Tracker(os.path.join(M.DATA, "sessions.json")).view()))
+            return 1
     if args.cmd == "kinds":
         from . import library
         for doc in library.all_manifests():

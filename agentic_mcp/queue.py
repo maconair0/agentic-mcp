@@ -27,18 +27,41 @@ class Queue:
         self._lock = threading.RLock()
 
     def _load(self) -> Dict[str, Dict[str, Any]]:
-        try:
-            with open(self.path) as fh:
-                got = json.load(fh)
-            return got if isinstance(got, dict) else {}
-        except (OSError, ValueError):
-            return {}
+        """What is queued and what was applied. A file that cannot be read is
+        not taken for an empty queue: the copy made at the last save is used,
+        and the unreadable file is kept aside for whoever wants to look.
+        Reading it as empty and saving again would have thrown away every
+        approval and every write there is to replay."""
+        for path in (self.path, self.path + ".bak"):
+            try:
+                with open(path) as fh:
+                    got = json.load(fh)
+                if isinstance(got, dict):
+                    return got
+            except FileNotFoundError:
+                continue
+            except (OSError, ValueError) as exc:
+                import logging
+                logging.getLogger("agentic_mcp.queue").error(
+                    "%s cannot be read (%s); kept as %s.unreadable", path, exc, path)
+                try:
+                    os.replace(path, f"{path}.unreadable")
+                except OSError:
+                    pass
+        return {}
 
     def _save(self, items: Dict[str, Dict[str, Any]]) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         tmp = f"{self.path}.{os.getpid()}.tmp"
         with open(tmp, "w") as fh:
             json.dump(items, fh, indent=1)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            if os.path.exists(self.path):
+                os.replace(self.path, self.path + ".bak")       # the last good one, one save back
+        except OSError:
+            pass
         os.replace(tmp, self.path)
 
     def request(self, controller: str, action: str, summary: str, requests: List[Dict[str, Any]],

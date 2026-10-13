@@ -163,6 +163,7 @@ write tool takes `approved_by`. This needs the `mcp` package, version 1.x.
 | `GET /controllers/<key>`, `DELETE` | what was learned about one; forget it |
 | `GET /controllers/<key>/tools`, `POST .../call` | its tools; call one (`tool`, `arguments`, `approved_by`) |
 | `POST /controllers/<key>/read`, `dry-run`, `write`, `confirm` | by verb (`verb`, `arguments`, `body`, `approved_by`) |
+| `GET /sessions`, `GET /sessions/<key>` | every controller's session: up, degraded or down, since when, requests, errors, answer times |
 | `GET /queue` | writes waiting for a person's approval |
 | `POST /ask` | a request in words: `{"text": "list the devices on onos"}` |
 
@@ -192,6 +193,25 @@ The model is served by [Ollama](https://ollama.com). The default,
 `qwen2.5:3b-instruct-q4_K_M` (1.9 GB), got 14 of 16 loosely worded requests
 right in about 1.8 seconds on a CPU. Without a model everything else works;
 only loosely worded requests go unanswered.
+
+## Staying up, and knowing what it holds
+
+Every request to a controller passes one place, which keeps that controller's
+session on record: its state, since when, how many requests and errors, how
+long it takes to answer. `python -m agentic_mcp sessions` or `GET /sessions`
+shows it; it is kept on disk and every change of state is logged.
+
+- A controller that does not answer four times in a row is not asked again for
+  a while (20 s, doubling to 5 minutes). Callers are told at once; the
+  controller is not hammered while it is down; one request after the pause
+  decides.
+- A read that got no answer is asked once more. A write never is: it may have
+  arrived.
+- Every controller is looked at every 30 s whether or not anybody uses it.
+- An error inside a request is that request's answer, with a reference to find
+  it in the log. It is never the service going down.
+- The approval queue survives a damaged file: the last good copy is used and
+  the damaged one kept aside.
 
 ## The contract
 
