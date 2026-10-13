@@ -172,6 +172,14 @@ class ReplayWatchTests(unittest.TestCase):
         w.new_in({"ok": True, "rows": [{"dpid": 1}, {"dpid": 2}]})
         self.assertEqual(w.new_in(self.three), 1)
 
+    def test_a_controller_that_was_away_and_comes_back_with_the_same_switches_gets_its_writes_back(self):
+        w = skills.Watcher(self.path)
+        w.new_in(self.three)
+        for _ in range(3):                                           # a lab being rebuilt: nothing answers
+            self.assertEqual(w.new_in({"ok": False}), 0)
+        self.assertEqual(w.new_in(self.three), 3)                    # the same names, started afresh and empty
+        self.assertEqual(w.new_in(self.three), 0)
+
     def test_starting_the_service_again_is_not_a_reason_to_replay(self):
         skills.Watcher(self.path).new_in(self.three)
         again = skills.Watcher(self.path)

@@ -96,11 +96,19 @@ class Watcher:
     there" made everything new at the next good read, and one slow answer put
     every approved write on the controller again. What was seen is kept on
     disk, so starting this service again is not a reason to replay either. The
-    first time ever, what is there is taken as the starting point.
+    first time ever, what is there is taken as the starting point. A controller
+    that was away for several reads in a row is another matter: see AWAY_AFTER.
     """
+
+    # This many reads in a row without an answer is the controller being away,
+    # not one slow answer. When it answers again, what it holds may have been
+    # started afresh with the same names (a lab rebuilt, a switch restarted):
+    # everything it lists is taken as new, once.
+    AWAY_AFTER = 3
 
     def __init__(self, path: str = ""):
         self.path = path
+        self.missed = 0
         self.seen: Any = None
         try:
             with open(path) as fh:
@@ -111,9 +119,13 @@ class Watcher:
     def new_in(self, got: Dict[str, Any]) -> int:
         """How many rows of this answer were not there at the last good one."""
         if not got.get("ok"):
+            self.missed += 1
             return 0
         now = {json_key(r) for r in (got.get("rows") if "rows" in got else got.get("data") or [])}
+        was_away, self.missed = self.missed >= self.AWAY_AFTER, 0
         new = len(now - self.seen) if self.seen is not None else 0
+        if was_away and self.seen is not None:
+            new = len(now)
         if now != self.seen:
             self.seen = now
             if self.path:
