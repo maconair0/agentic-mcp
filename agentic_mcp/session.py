@@ -217,7 +217,7 @@ class Session:
         limit = int(((self._verb(verb).get("policy") or {}).get("max_per_hour")) or 0)
         if not limit:
             return ""
-        since, sent = time.time() - 3600, 0
+        since, sent, times = time.time() - 3600, 0, []
         try:
             with open(self.audit) as fh:
                 for line in fh:
@@ -229,11 +229,17 @@ class Session:
                             and row.get("controller") == self.manifest["key"] and not row.get("step")
                             and not row.get("replay")):
                         sent += 1
+                        times.append(float(row.get("at", 0)))
         except OSError:
             return ""
+        if sent < limit:
+            return ""
+        # The next one may go when the oldest of the last `limit` is an hour old.
+        again = sorted(times)[-limit] + 3600
         return (f"{self.manifest.get('label', self.manifest['key'])} takes at most {limit} "
-                f"{verb.replace('_', ' ')} request(s) an hour and {sent} were sent in the last hour"
-                if sent >= limit else "")
+                f"{verb.replace('_', ' ')} request(s) an hour and {sent} were sent in the last hour; "
+                f"the next can be sent at {time.strftime('%H:%M', time.localtime(again))} "
+                f"(in {max(1, int((again - time.time()) / 60) + 1)} min)")
 
     def dry_run(self, verb: str, body: Optional[Dict[str, Any]] = None, **params) -> Dict[str, Any]:
         """Everything short of sending: is the request complete and well formed.
