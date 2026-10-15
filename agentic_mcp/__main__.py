@@ -34,7 +34,10 @@ from .session import Session, rows
 
 
 def _load_env() -> None:
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "controllers.env")
+    # AGENTIC_MCP_ENV_FILE: an instance that holds only some controllers (one
+    # domain's, one site's) is given only their credentials, not everyone's.
+    path = os.getenv("AGENTIC_MCP_ENV_FILE") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "controllers.env")
     try:
         with open(path) as fh:
             for line in fh:
@@ -62,6 +65,7 @@ def main(argv=None) -> int:
     sub.add_parser("list")
     sub.add_parser("kinds")
     sub.add_parser("sessions")
+    sub.add_parser("sync-schema", help="write the contract's verbs into manifest.schema.json")
     sv = sub.add_parser("serve", help="run the agentic MCP as a service of its own")
     sv.add_argument("--host", default=os.getenv("AGENTIC_MCP_BIND", "127.0.0.1"))
     sv.add_argument("--port", type=int, default=int(os.getenv("AGENTIC_MCP_PORT", "8400")))
@@ -142,6 +146,12 @@ def main(argv=None) -> int:
             from . import sessions
             print(sessions.text(sessions.Tracker(os.path.join(M.DATA, "sessions.json")).view()))
             return 1
+    if args.cmd == "sync-schema":
+        from . import library
+        changed = library.sync_schema()
+        print(f"manifest.schema.json: {changed} verb list(s) rewritten from contract.json" if changed
+              else "manifest.schema.json already names every verb of the contract")
+        return 0
     if args.cmd == "kinds":
         from . import library
         for doc in library.all_manifests():

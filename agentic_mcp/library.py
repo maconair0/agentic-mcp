@@ -399,3 +399,38 @@ def install_guide(data: Any, kind: str, title: str = "", name: str = "", folder:
     return {**kept, **{k: got[k] for k in ("operations", "reads", "writes", "read_as", "yaml")}, "draft": True,
             "next": (f"onboard a controller of this kind (kind {got['kind']}); then confirm each write it "
                      f"should make, or state the verbs in the manifest and upload it again")}
+
+
+SCHEMA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.schema.json")
+
+
+def sync_schema(path: str = SCHEMA_FILE) -> int:
+    """Rewrite the published schema's verb lists from contract.json, the one
+    place a verb is defined. A list counts as a verb list when every name in it
+    is a verb of the contract. Returns how many lists changed."""
+    import json as _json
+    from .verbs import VERBS
+    with open(path) as fh:
+        schema = _json.load(fh)
+    verbs, changed = list(VERBS), 0
+
+    def walk(node):
+        nonlocal changed
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if (key == "enum" and isinstance(value, list) and len(value) >= 10
+                        and all(isinstance(v, str) and v in VERBS for v in value) and value != verbs):
+                    node[key] = verbs
+                    changed += 1
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+    walk(schema)
+    if changed:
+        with open(path, "w") as fh:
+            _json.dump(schema, fh, indent=1)
+            fh.write("\n")
+    return changed
+

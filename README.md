@@ -84,6 +84,75 @@ metro, dry run of provision:
 
 Add `"confirm": true, "approved_by": "ada"` to the same request and it is sent.
 
+## Installing it where it will run
+
+The quick start runs everything on one machine. A deployment beside real
+controllers (a lab, a NOC, a site with no development tools) needs only Python
+3.10 or newer and network access to the controllers. A model is optional (see
+[The agent inside it](#the-agent-inside-it)).
+
+```bash
+git clone https://github.com/maconair0/agentic-mcp.git /opt/agentic-mcp
+cd /opt/agentic-mcp
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+
+cp controllers.env.example controllers.env     # the controllers' credentials: names and values
+chmod 600 controllers.env                      # only this file ever holds them
+
+export AGENTIC_MCP_DATA=/var/lib/agentic-mcp   # manifests, onboarded controllers, queue, audit log
+python -m agentic_mcp install manifests/*.yaml # the kinds you will onboard (or your own manifests)
+python -m agentic_mcp onboard core --url http://10.0.0.5:8181/onos/v1 \
+       --user-env CORE_USER --password-env CORE_PASSWORD
+python -m agentic_mcp show core                # what it serves, verified, and what it lacks
+```
+
+**Before it is reachable from another machine**, set these, all in its
+environment:
+
+| Setting | Why |
+|---|---|
+| `AGENTIC_MCP_BIND=0.0.0.0` | it listens on 127.0.0.1 unless told otherwise |
+| `AGENTIC_MCP_TOKEN=<a long secret>` | without it, anyone who reaches the port can use it; with it, every non-read call and the MCP endpoint need `Authorization: Bearer <secret>` |
+| `AGENTIC_MCP_DATA=/var/lib/agentic-mcp` | keep its state off the code's folder, on storage that is backed up (the audit log and the approval queue are records) |
+| `AGENTIC_MCP_PORT` | if 8400 is taken |
+
+It serves plain HTTP. Put TLS in front of it with any reverse proxy (nginx,
+Caddy, a load balancer) when the traffic leaves the machine.
+
+**As a service** (systemd), so it starts with the machine and comes back if it
+stops:
+
+```ini
+# /etc/systemd/system/agentic-mcp.service
+[Unit]
+Description=Agentic MCP
+After=network-online.target
+
+[Service]
+User=agentic-mcp
+WorkingDirectory=/opt/agentic-mcp
+Environment=AGENTIC_MCP_DATA=/var/lib/agentic-mcp
+Environment=AGENTIC_MCP_BIND=0.0.0.0
+EnvironmentFile=/etc/agentic-mcp/service.env        # AGENTIC_MCP_TOKEN=... (mode 600)
+ExecStart=/opt/agentic-mcp/.venv/bin/python -m agentic_mcp serve --port 8400
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now agentic-mcp
+curl -s localhost:8400/health          # the controllers it holds, and their sessions
+```
+
+**Agents reach it** at `http://<host>:8400/mcp/sse` (MCP), over HTTP, or from
+Python with `RemoteDesk("http://<host>:8400", token="<secret>")`.
+
+**Upgrading** is `git pull` and a restart. The state under `AGENTIC_MCP_DATA`
+(manifests, onboarded controllers, queue, audit log) is kept as it is.
+
 ## Adding your controller
 
 There are three ways, from least to most work. All of them end with the same
@@ -144,6 +213,93 @@ program, in `agentic_mcp/manifest.schema.json`. `manifests/` holds the
 manifests of four real controllers (TeraFlowSDN, ONOS, Ryu, TransportPCE), to
 use (`python -m agentic_mcp install manifests/*.yaml`) or to read as examples.
 None of the four has any code here.
+
+## Adding a verb
+
+A verb is defined in one place: its entry in `agentic_mcp/contract.json`, under
+the kind of work it belongs to. Its tool, the words a request uses for it,
+what it means and its examples are all read from there. Here is
+`read_power`, the optical power at each port, added to `resources`:
+
+```json
+"read_power": {
+  "why": "optical power at each port",
+  "methods": ["GET"],
+  "for": {"/power": 6, "pm/current": 5, "optical-power": 5},
+  "against": ["threshold", "config"],
+  "tool": "list_power",
+  "help": "optical power levels at the ports",
+  "words": "\\b(power|dbm|launch|received)\\b",
+  "words_rank": 9.5,
+  "examples": ["how strong is the light at the ports"]
+}
+```
+
+| Field | What it does |
+|---|---|
+| `why` | what the verb is for, in reports |
+| `methods` | the HTTP methods an operation serving it may use |
+| `for`, `against` | path fragments that count for or against an operation being this verb, with weights. Onboarding ranks a controller's operations with them |
+| `writes` | `true` for a verb that changes the network. It then waits for a person's confirmation on every controller, and every use is a dry run first |
+| `one` | `true` when it reads or changes one named thing (needs an id) |
+| `tool` | its tool name: every controller serves it as `<key>_<tool>` |
+| `help` | what it means, for the small model choosing a verb from words |
+| `words`, `words_rank` | a regular expression read by rule before any model; lower ranks are tried first |
+| `examples` | requests in words that mean it, shown to the small model |
+
+Then:
+
+```bash
+python -m agentic_mcp sync-schema          # writes the new verb into manifest.schema.json
+python -m unittest discover -s tests -t .  # the contract's own checks
+```
+
+From that moment:
+
+- every controller onboarded (or onboarded again) is searched for an operation
+  that serves it, and a read is tried before it counts;
+- a manifest may state it (`verbs: read_power: operation: GET /pm/current/power`);
+- it is served as a tool over MCP and HTTP;
+- a request in words can reach it;
+- conformance reports it, as present or missing.
+
+To give a deployment verbs of its own without changing the installed package,
+point `AGENTIC_MCP_CONTRACT` at a copy of `contract.json` with them added.
+
+## Scaling out
+
+One instance holds any number of controllers side by side (see
+[Staying up](#staying-up-and-knowing-what-it-holds)). Run more than one when
+the controllers belong to different owners, sites or network domains, so that
+each instance holds only its own controllers and only their credentials:
+
+```bash
+# site A: its optical controllers
+AGENTIC_MCP_DATA=/var/lib/agentic-mcp/site-a  AGENTIC_MCP_ENV_FILE=/etc/agentic-mcp/site-a.env \
+  python -m agentic_mcp serve --port 8401 &
+# site B: its packet controllers
+AGENTIC_MCP_DATA=/var/lib/agentic-mcp/site-b  AGENTIC_MCP_ENV_FILE=/etc/agentic-mcp/site-b.env \
+  python -m agentic_mcp serve --port 8402 &
+```
+
+- **Its own folder** (`AGENTIC_MCP_DATA`): its manifests, its onboarded
+  controllers, its queue and its audit log. Nothing is shared.
+- **Its own credentials** (`AGENTIC_MCP_ENV_FILE`, mode 600): only the
+  settings of its own controllers. One instance cannot sign in to another's
+  controllers even by mistake.
+- **Its own token and port**, and its own contract if it needs other verbs
+  (`AGENTIC_MCP_CONTRACT`).
+- **Agents use each instance as its own service.** An orchestrator that spans
+  several keeps one `RemoteDesk` (or one MCP connection) per instance. Where
+  each instance belongs to an agent of its own domain, those agents talk to
+  each other rather than to each other's instances. In the edgeLM project they
+  do this over A2A, each agent with its own instance.
+- **Per instance, the load is bounded:**
+  - `AGENTIC_MCP_PER_CONTROLLER` (requests in flight to one controller, 24)
+    keeps a slow controller from taking the others down;
+  - `AGENTIC_MCP_THREADS` and `AGENTIC_MCP_CONNECTIONS` size the rest;
+  - `GET /sessions` and `GET /health` say how each controller is doing, for
+    monitoring.
 
 ## Talking to it
 
@@ -233,8 +389,9 @@ shows it; it is kept on disk and every change of state is logged.
 | health | yes | health, read alarms |
 | device configuration | no | configure device |
 
-To extend it, add a verb or a kind of work to `agentic_mcp/contract.json`.
-Nothing else needs to change for it to be checked.
+To extend it, add a verb or a kind of work to `agentic_mcp/contract.json`: it
+is the only place a verb is defined (see [Adding a verb](#adding-a-verb)), and
+`python -m agentic_mcp sync-schema` brings the published schema in line.
 
 ## Settings
 
@@ -250,6 +407,8 @@ Nothing else needs to change for it to be checked.
 | `AGENTIC_MCP_CONNECTIONS` | connections kept to each controller (32) |
 | `AGENTIC_MCP_PER_CONTROLLER` | requests that may be on their way to one controller at once (24) |
 | `AGENTIC_MCP_THREADS` | requests served at once in all (enough for every controller's share, at least 64) |
+| `AGENTIC_MCP_ENV_FILE` | the credentials file it reads at start (`controllers.env` beside the code); give each instance only its own controllers' |
+| `AGENTIC_MCP_CONTRACT` | a contract file to use instead of the packaged `contract.json`, for verbs of your own |
 
 ## What it does not do
 
@@ -268,14 +427,14 @@ Nothing else needs to change for it to be checked.
 python -m unittest discover -s tests -t .
 ```
 
-About 100 tests, a few seconds, no network: the example controller runs in the
+About 140 tests, a few seconds, no network: the example controller runs in the
 test process.
 
 ## Layout
 
 ```
 agentic_mcp/
-  contract.json          the verbs every controller is asked in
+  contract.json          the verbs every controller is asked in: the one place a verb is defined
   manifest.schema.json   the manifest format, for a program
   library.py             manifests: read, checked, drafted from a user guide
   discover.py            what a controller says about its own API

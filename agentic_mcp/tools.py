@@ -535,15 +535,10 @@ REPLIES = {"json": _reply_json, "tfs": _reply_tfs, "onos": _reply_onos}
 
 # ----- verbs, for a controller with no family -----
 
-VERB_TOOLS = {"read_devices": "list_devices", "read_links": "list_links",
-              "read_services": "list_services", "compute_path": "compute_path",
-              "read_spectrum": "list_spectrum", "provision": "create_service",
-              "adjust": "update_service", "teardown": "delete_service",
-              "read_device": "get_device", "read_ports": "list_ports", "read_hosts": "list_hosts",
-              "read_service": "get_service", "check_feasibility": "check_feasibility",
-              "read_statistics": "get_statistics", "reroute": "reroute_service",
-              "health": "health_check", "read_alarms": "list_alarms",
-              "configure_device": "configure_device"}
+# The tool each verb is served under (<controller key>_<tool>), as the
+# contract names it: a verb added to contract.json gets its tool from there.
+from .verbs import VERBS as _VERBS
+VERB_TOOLS = {verb: rule["tool"] for verb, rule in _VERBS.items()}
 # The roles a planner looks for, and the verb behind each.
 ROLES = {"devices": "read_devices", "links": "read_links", "services": "read_services",
          "path": "compute_path", "provision": "provision", "teardown": "teardown"}

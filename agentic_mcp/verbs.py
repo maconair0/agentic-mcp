@@ -18,7 +18,10 @@ import json
 import os
 from typing import Any, Dict, Iterable, List, Tuple
 
-CONTRACT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "contract.json")
+# The one place a verb is defined. AGENTIC_MCP_CONTRACT points at another copy
+# (a site's own, with verbs of its own) without changing the installed package.
+CONTRACT_FILE = os.getenv("AGENTIC_MCP_CONTRACT") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "contract.json")
 
 
 def load_contract(path: str = CONTRACT_FILE) -> Dict[str, Any]:

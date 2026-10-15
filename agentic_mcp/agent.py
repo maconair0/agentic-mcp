@@ -34,28 +34,15 @@ MODEL = os.getenv("AGENTIC_MCP_MODEL", "qwen2.5:3b-instruct-q4_K_M")
 MODEL_GPU_LAYERS = int(os.getenv("AGENTIC_MCP_MODEL_GPU", "-1"))
 OWN = ("controllers", "describe")
 
-# The words a request uses for each verb, most telling first.
-WORDS: List[Tuple[str, str]] = [
-    ("onboard", r"\bonboard\b"),
-    ("teardown", r"\b(delete|remove|tear ?down|withdraw|release)\b"),
-    ("provision", r"\b(create|provision|build|set ?up|add|map)\b.*\b(service|lightpath|circuit|flow|intent|vlan|connection)\b"),
-    ("reroute", r"\b(reroute|re-route|restore)\b"),
-    ("adjust", r"\b(change|update|modify|adjust|reconfigure)\b.*\b(service|lightpath|circuit|flow|intent)\b"),
-    ("configure_device", r"\b(configure|set)\b.*\b(device|port|transponder|roadm|switch)\b"),
-    ("compute_path", r"\b(path|route)\b.*\b(between|from)\b|\bcompute\b.*\bpath\b"),
-    ("check_feasibility", r"\bfeasib"),
-    ("read_spectrum", r"\b(spectrum|wavelengths?|frequenc\w+|channels?|slots?)\b"),
-    ("read_statistics", r"\b(statistics|counters|traffic|packets|bytes)\b"),
-    ("read_alarms", r"\b(alarms?|alerts?)\b"),
-    ("read_hosts", r"\bhosts?\b"),
-    ("read_ports", r"\bports?\b"),
-    ("read_services", r"\b(services?|intents?|flows?|lightpaths?|circuits?|connections?)\b"),
-    ("read_links", r"\b(links?|topology|connected|adjacenc\w+|fib(er|re)s?)\b"),
-    ("read_devices", r"\b(devices?|switch(es)?|nodes?|routers?|transponders?|roadms?|inventory|equipment)\b"),
-    ("health", r"\b(health\w*|alive|reachable|is .* (up|down|working)|status)\b"),
-    ("describe", r"\b(manifest|contract|conformance|learn\w*|capabilit\w+|what can)\b"),
-    ("controllers", r"\b(which|what|list|show)\b.*\bcontrollers\b"),
-]
+# The words a request uses for each verb, most telling first. A verb's words
+# are the contract's ("words", tried in "words_rank" order); the agentic
+# MCP's own actions (onboarding, describing, listing) are named here.
+WORDS: List[Tuple[str, str]] = (
+    [("onboard", r"\bonboard\b")]
+    + [(verb, rule["words"]) for verb, rule in sorted(
+        ((v, r) for v, r in VERBS.items() if r.get("words")), key=lambda vr: vr[1].get("words_rank", 999))]
+    + [("describe", r"\b(manifest|contract|conformance|learn\w*|capabilit\w+|what can)\b"),
+       ("controllers", r"\b(which|what|list|show)\b.*\bcontrollers\b")])
 
 
 def model_info() -> Dict[str, Any]:
@@ -117,34 +104,13 @@ def by_rule(text: str, known: Dict[str, Dict[str, str]]) -> Optional[Dict[str, A
 
 
 # What each action is, in the words a request would use. For the model only.
-HELP = {
-    "read_devices": "the equipment itself: devices, boxes, inventory, switches, routers, transponders, ROADMs",
-    "read_device": "one named device in detail",
-    "read_ports": "the list of ports of one named device",
-    "read_links": "how devices are connected: links, fibres, wiring, topology",
-    "read_hosts": "end hosts or computers attached to the switches",
-    "read_services": "what is provisioned: services, circuits, lightpaths, intents, flows, what was set up",
-    "read_service": "one named service in detail",
-    "compute_path": "a route between two named ends",
-    "check_feasibility": "whether a NEW service between two named ends would fit",
-    "read_spectrum": "free wavelengths, frequencies, channels, colours of light",
-    "read_statistics": "traffic counters: how busy, load, packets, bytes",
-    "provision": "create a new service",
-    "teardown": "remove a service",
-    "adjust": "change an existing service",
-    "reroute": "move a service to another path",
-    "health": "is the controller itself reachable, answering, alive, working",
-    "read_alarms": "alarms, faults, anything complaining",
-    "configure_device": "change a setting on one device",
-}
+# What each verb means, for the small model choosing one: the contract's "help".
+HELP = {verb: rule["help"] for verb, rule in VERBS.items() if rule.get("help")}
 
-EXAMPLES = (
-    ("what boxes does it have", "read_devices"), ("how are they wired together", "read_links"),
-    ("what has been set up so far", "read_services"), ("anything complaining", "read_alarms"),
-    ("how busy are the ports", "read_statistics"), ("what is plugged into the switches", "read_hosts"),
-    ("which colours of light are unused", "read_spectrum"), ("can it still be talked to", "health"),
-    ("tell me about that controller", "describe"), ("take the circuit away", "teardown"),
-)
+# Requests in words and what they mean: the contract's examples per verb, and
+# one for the agentic MCP's own "describe".
+EXAMPLES = tuple((q, verb) for verb, rule in VERBS.items() for q in rule.get("examples") or ()) + (
+    ("tell me about that controller", "describe"),)
 
 
 def _say(prompt: str, timeout: float) -> Any:

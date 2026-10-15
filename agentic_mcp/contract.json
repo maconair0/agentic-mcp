@@ -28,6 +28,13 @@
       "cluster",
       "_ids",
       "desc"
+     ],
+     "tool": "list_devices",
+     "help": "the equipment itself: devices, boxes, inventory, switches, routers, transponders, ROADMs",
+     "words": "\\b(devices?|switch(es)?|nodes?|routers?|transponders?|roadms?|inventory|equipment)\\b",
+     "words_rank": 15,
+     "examples": [
+      "what boxes does it have"
      ]
     },
     "read_device": {
@@ -51,7 +58,9 @@
       "/nodes={node-id}/",
       "mapping",
       "region"
-     ]
+     ],
+     "tool": "get_device",
+     "help": "one named device in detail"
     },
     "read_ports": {
      "why": "the ports of a device",
@@ -70,7 +79,11 @@
       "statistics",
       "portstate",
       "modulation"
-     ]
+     ],
+     "tool": "list_ports",
+     "help": "the list of ports of one named device",
+     "words": "\\bports?\\b",
+     "words_rank": 12
     }
    }
   },
@@ -99,6 +112,13 @@
       "usestale",
       "hosts",
       "switches"
+     ],
+     "tool": "list_links",
+     "help": "how devices are connected: links, fibres, wiring, topology",
+     "words": "\\b(links?|topology|connected|adjacenc\\w+|fib(er|re)s?)\\b",
+     "words_rank": 14,
+     "examples": [
+      "how are they wired together"
      ]
     },
     "read_hosts": {
@@ -116,6 +136,13 @@
      },
      "against": [
       "{"
+     ],
+     "tool": "list_hosts",
+     "help": "end hosts or computers attached to the switches",
+     "words": "\\bhosts?\\b",
+     "words_rank": 11,
+     "examples": [
+      "what is plugged into the switches"
      ]
     }
    }
@@ -153,6 +180,13 @@
       "path-list",
       "connection",
       "allocation"
+     ],
+     "tool": "list_services",
+     "help": "what is provisioned: services, circuits, lightpaths, intents, flows, what was set up",
+     "words": "\\b(services?|intents?|flows?|lightpaths?|circuits?|connections?)\\b",
+     "words_rank": 13,
+     "examples": [
+      "what has been set up so far"
      ]
     },
     "read_service": {
@@ -176,7 +210,9 @@
       "connection",
       "allocation",
       "application"
-     ]
+     ],
+     "tool": "get_service",
+     "help": "one named service in detail"
     }
    }
   },
@@ -205,7 +241,11 @@
       "disjoint",
       "notification",
       "optimize"
-     ]
+     ],
+     "tool": "compute_path",
+     "help": "a route between two named ends",
+     "words": "\\b(path|route)\\b.*\\b(between|from)\\b|\\bcompute\\b.*\\bpath\\b",
+     "words_rank": 6
     },
     "check_feasibility": {
      "why": "would this service fit, without building it",
@@ -220,7 +260,11 @@
      "against": [
       "bulk",
       "notification"
-     ]
+     ],
+     "tool": "check_feasibility",
+     "help": "whether a NEW service between two named ends would fit",
+     "words": "\\bfeasib",
+     "words_rank": 7
     }
    }
   },
@@ -249,6 +293,13 @@
       "consume",
       "release",
       "constraint"
+     ],
+     "tool": "list_spectrum",
+     "help": "free wavelengths, frequencies, channels, colours of light",
+     "words": "\\b(spectrum|wavelengths?|frequenc\\w+|channels?|slots?)\\b",
+     "words_rank": 8,
+     "examples": [
+      "which colours of light are unused"
      ]
     },
     "read_statistics": {
@@ -269,6 +320,13 @@
       "activeentries",
       "meter",
       "group"
+     ],
+     "tool": "get_statistics",
+     "help": "traffic counters: how busy, load, packets, bytes",
+     "words": "\\b(statistics|counters|traffic|packets|bytes)\\b",
+     "words_rank": 9,
+     "examples": [
+      "how busy are the ports"
      ]
     }
    }
@@ -300,7 +358,11 @@
       "application",
       "pending",
       "{"
-     ]
+     ],
+     "tool": "create_service",
+     "help": "create a new service",
+     "words": "\\b(create|provision|build|set ?up|add|map)\\b.*\\b(service|lightpath|circuit|flow|intent|vlan|connection)\\b",
+     "words_rank": 2
     },
     "teardown": {
      "why": "remove a service and release what it held",
@@ -331,6 +393,13 @@
       "reservation",
       "connection",
       "allocation"
+     ],
+     "tool": "delete_service",
+     "help": "remove a service",
+     "words": "\\b(delete|remove|tear ?down|withdraw|release)\\b",
+     "words_rank": 1,
+     "examples": [
+      "take the circuit away"
      ]
     }
    }
@@ -367,7 +436,11 @@
       "allocation",
       "connection",
       "reroute"
-     ]
+     ],
+     "tool": "update_service",
+     "help": "change an existing service",
+     "words": "\\b(change|update|modify|adjust|reconfigure)\\b.*\\b(service|lightpath|circuit|flow|intent)\\b",
+     "words_rank": 4
     },
     "reroute": {
      "why": "move a service to another path",
@@ -386,7 +459,11 @@
       "confirm",
       "result",
       "path-computation"
-     ]
+     ],
+     "tool": "reroute_service",
+     "help": "move a service to another path",
+     "words": "\\b(reroute|re-route|restore)\\b",
+     "words_rank": 3
     }
    }
   },
@@ -413,6 +490,13 @@
       "{",
       "nodes",
       "aaa"
+     ],
+     "tool": "health_check",
+     "help": "is the controller itself reachable, answering, alive, working",
+     "words": "\\b(health\\w*|alive|reachable|is .* (up|down|working)|status)\\b",
+     "words_rank": 16,
+     "examples": [
+      "can it still be talked to"
      ]
     },
     "read_alarms": {
@@ -431,6 +515,13 @@
       "suppression",
       "process-service",
       "nbi-notifications"
+     ],
+     "tool": "list_alarms",
+     "help": "alarms, faults, anything complaining",
+     "words": "\\b(alarms?|alerts?)\\b",
+     "words_rank": 10,
+     "examples": [
+      "anything complaining"
      ]
     }
    }
@@ -461,9 +552,26 @@
       "notification",
       "region",
       "mastership"
-     ]
+     ],
+     "tool": "configure_device",
+     "help": "change a setting on one device",
+     "words": "\\b(configure|set)\\b.*\\b(device|port|transponder|roadm|switch)\\b",
+     "words_rank": 5
     }
    }
   }
- ]
+ ],
+ "verb_fields": {
+  "why": "what the verb is for (shown in reports)",
+  "methods": "HTTP methods that may serve it",
+  "for": "path fragments that count for an operation being this verb, with a weight",
+  "against": "path fragments that count against it",
+  "writes": "true for a verb that changes the network",
+  "one": "true when it reads or changes one named thing",
+  "tool": "the tool name it is served under: <controller key>_<tool>",
+  "help": "what it means, for the small model choosing a verb from words",
+  "words": "a regular expression of the words a request uses for it, read by rule before any model",
+  "words_rank": "which verb's words are tried first when several match (lower first)",
+  "examples": "requests in words that mean this verb, shown to the small model"
+ }
 }
