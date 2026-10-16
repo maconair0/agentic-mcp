@@ -31,6 +31,18 @@ logger = logging.getLogger("agentic_mcp.sessions")
 OPEN_AFTER = int(os.getenv("AGENTIC_MCP_BREAKER_AFTER", "4"))        # failures in a row before the pause
 PAUSE_S = float(os.getenv("AGENTIC_MCP_BREAKER_PAUSE_S", "20"))      # the first pause; doubled each time, to 5 minutes
 PAUSE_MAX_S = 300.0
+# A request that timed out cost a whole timeout, so far fewer of them in a row
+# say the controller is not answering than refusals, which cost nothing. One
+# tool call can make several requests in turn, each waiting out its timeout:
+# with four needed, the first caller of a controller that hangs waited four.
+OPEN_AFTER_TIMEOUTS = int(os.getenv("AGENTIC_MCP_BREAKER_AFTER_TIMEOUTS", "2"))
+TIMEOUTS = ("ReadTimeout", "ConnectTimeout", "Timeout")
+# The one request let through after a pause only asks whether the controller is
+# back. It is somebody's request (a chat turn, an edge agent's poll), so it is
+# not given the whole timeout: a controller that is back answers in well under this.
+PROBE_TIMEOUT_S = float(os.getenv("AGENTIC_MCP_PROBE_TIMEOUT_S", "5"))
+# How long the one request let through after a pause may take before another is.
+PROBE_S = float(os.getenv("AGENTIC_MCP_TIMEOUT") or os.getenv("CONNECTOR_TIMEOUT") or "20") + 5
 UP, DEGRADED, DOWN, UNKNOWN = "up", "degraded", "down", "not asked yet"
 # The breaker holds requests back only in the service, which lives for days and
 # is asked by many. A command run once, or a test, records and never holds back.
@@ -72,6 +84,12 @@ def each(keys: List[str], fn: Any, wait_s: float = 10.0) -> Dict[str, Dict[str, 
     return dict(out)
 
 
+def _stalled(rec: Dict[str, Any]) -> bool:
+    """Enough failures in a row that the controller is taken not to be answering."""
+    return (rec["failures_in_a_row"] >= OPEN_AFTER
+            or rec.get("timeouts_in_a_row", 0) >= OPEN_AFTER_TIMEOUTS)
+
+
 class Tracker:
     def __init__(self, path: str = ""):
         self.path = path
@@ -87,7 +105,7 @@ class Tracker:
                 for key, rec in (kept if isinstance(kept, dict) else {}).items():
                     if isinstance(rec, dict):
                         # A breaker left open by a process that is gone is not kept: this one finds out itself.
-                        self._s[key] = {**self._new(key), **rec, "failures_in_a_row": 0, "open_until": 0.0,
+                        self._s[key] = {**self._new(key), **rec, "failures_in_a_row": 0, "timeouts_in_a_row": 0, "probe": False, "open_until": 0.0,
                                         "pause_s": PAUSE_S, "since_start": {"requests": 0, "errors": 0}}
             except (OSError, ValueError):
                 pass
@@ -106,14 +124,29 @@ class Tracker:
     # --- asked before a request ---
 
     def allow(self, key: str) -> str:
-        """"" when the controller may be asked, else why not (the breaker is open)."""
+        """"" when the controller may be asked, else why not (the breaker is open).
+
+        When the pause is over, one request is let through to find out whether
+        the controller is back, and the others are told at once while it is on
+        its way: letting them all through together held each of them for a
+        whole timeout, all at the same moment."""
         with self._lock:
             rec = self._rec(key)
-            left = rec["open_until"] - time.time()
+            now = time.time()
+            left = rec["open_until"] - now
             if left > 0 and BREAKER:
                 return (f"{key} did not answer {rec['failures_in_a_row']} times in a row "
                         f"({rec['last_error'][:120]}); it is asked again in {left:.0f} s")
+            if BREAKER and _stalled(rec):
+                rec["probe"] = True
+                # This one is the probe; its answer (record) closes the breaker or opens it again.
+                rec["open_until"] = now + PROBE_S
             return ""
+
+    def probing(self, key: str) -> bool:
+        """Whether the request just allowed is the probe of a controller that was not answering."""
+        with self._lock:
+            return bool(self._rec(key).pop("probe", False))
 
     def enter(self, key: str) -> str:
         """Take one of the controller's places; "" when there was one, else why not."""
@@ -149,13 +182,16 @@ class Tracker:
                 rec["last_error_at"] = now
             if answered:
                 rec["last_ok"] = now
-                was_open = rec["failures_in_a_row"] >= OPEN_AFTER
-                rec["failures_in_a_row"], rec["open_until"], rec["pause_s"] = 0, 0.0, PAUSE_S
+                was_open = _stalled(rec)
+                rec["failures_in_a_row"], rec["timeouts_in_a_row"] = 0, 0
+                rec["open_until"], rec["pause_s"] = 0.0, PAUSE_S
                 self._state(rec, DEGRADED if status >= 500 else UP,
                             "answers again" if was_open or rec["state"] == DOWN else "")
             else:
                 rec["failures_in_a_row"] += 1
-                if rec["failures_in_a_row"] >= OPEN_AFTER:
+                if str(error).split(":")[0] in TIMEOUTS:
+                    rec["timeouts_in_a_row"] = rec.get("timeouts_in_a_row", 0) + 1
+                if _stalled(rec):
                     rec["open_until"] = now + rec["pause_s"]
                     self._state(rec, DOWN, f"no answer {rec['failures_in_a_row']} times in a row: {rec['last_error'][:140]}; "
                                            f"not asked again for {rec['pause_s']:.0f} s")

@@ -44,6 +44,26 @@ class TrackerTests(unittest.TestCase):
         self.assertIn("did not answer 4 times in a row", self.t.allow("ryu"))
         self.assertEqual(self.t.view("ryu")[0]["breaker"], "open")
 
+    def test_two_timeouts_in_a_row_open_the_breaker_where_refusals_need_four(self):
+        # A timeout costs a whole timeout: one tool call making several requests
+        # in turn held its first caller for each of them.
+        self.t.record("tfs", 0, 3000, "ReadTimeout: slow")
+        self.assertEqual(self.t.allow("tfs"), "")
+        self.t.record("tfs", 0, 3000, "ConnectTimeout: no route")
+        self.assertIn("did not answer", self.t.allow("tfs"))
+        self.assertEqual(self.t.view("tfs")[0]["state"], "down")
+        for _ in range(sessions.OPEN_AFTER - 1):
+            self.t.record("ryu", 0, 5, "ConnectionError: refused")
+            self.assertEqual(self.t.allow("ryu"), "")
+        self.t.record("ryu", 0, 5, "ConnectionError: refused")
+        self.assertIn("did not answer", self.t.allow("ryu"))
+
+    def test_an_answer_between_timeouts_starts_the_count_again(self):
+        self.t.record("tfs", 0, 3000, "ReadTimeout: slow")
+        self.t.record("tfs", 200, 40)
+        self.t.record("tfs", 0, 3000, "ReadTimeout: slow")
+        self.assertEqual(self.t.allow("tfs"), "")
+
     def test_after_the_pause_one_request_is_let_through_and_its_answer_decides(self):
         for _ in range(sessions.OPEN_AFTER):
             self.t.record("ryu", 0, 100, "ConnectionError")
@@ -54,6 +74,18 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual((got["state"], got["failures_in_a_row"], got["breaker"]), ("up", 0, "closed"))
         self.assertEqual([h["to"] for h in got["history"]], ["down", "up"])
         self.assertEqual(got["history"][-1]["why"], "answers again")
+
+    def test_after_the_pause_only_one_request_goes_while_it_is_on_its_way(self):
+        # Letting every waiting caller through at once held each of them for a whole timeout.
+        for _ in range(sessions.OPEN_AFTER):
+            self.t.record("ryu", 0, 100, "ConnectTimeout")
+        self.t._s["ryu"]["open_until"] = 0.0
+        self.assertEqual(self.t.allow("ryu"), "")                 # the probe
+        self.assertIn("did not answer", self.t.allow("ryu"))       # the others are told at once
+        self.assertIn("did not answer", self.t.allow("ryu"))
+        self.t.record("ryu", 0, 3000, "ConnectTimeout")            # the probe failed: paused again
+        self.assertIn("did not answer", self.t.allow("ryu"))
+        self.assertGreater(self.t._s["ryu"]["pause_s"], sessions.PAUSE_S)
 
     def test_each_pause_is_longer_than_the_last_up_to_five_minutes(self):
         for _ in range(sessions.OPEN_AFTER):
@@ -111,6 +143,41 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(s.fetch("GET", "http://m:1/x")[0], 200)
         self.assertEqual(self.calls, ["GET", "GET"])
         self.assertEqual(sessions.TRACKER.view("metro")[0]["errors"], 0)
+
+    def test_connecting_is_given_seconds_and_answering_the_whole_timeout(self):
+        seen = []
+
+        class Http:
+            def request(self, method, url, **kw):
+                seen.append(kw["timeout"])
+
+                class R:
+                    status_code, headers, text = 200, {}, "{}"
+                return R()
+        s = Session({"key": "metro", "base_url": "http://m:1"}, env={}, http=Http(),
+                    audit=os.path.join(self.dir, "audit.jsonl"))
+        s.fetch("GET", "http://m:1/x", timeout=20)
+        from agentic_mcp import session as session_mod
+        self.assertEqual(seen, [(session_mod.CONNECT_TIMEOUT, 20)])
+        s.fetch("GET", "http://m:1/x", timeout=1)
+        self.assertEqual(seen[-1], (1, 1))                         # never more than the whole timeout
+
+    def test_the_probe_after_a_pause_is_not_given_the_whole_timeout(self):
+        seen = []
+
+        class Http:
+            def request(self, method, url, **kw):
+                seen.append(kw["timeout"][1])
+                raise requests.ReadTimeout("slow")
+        s = Session({"key": "metro", "base_url": "http://m:1"}, env={}, http=Http(),
+                    audit=os.path.join(self.dir, "audit.jsonl"))
+        with mock.patch.object(sessions, "BREAKER", True):
+            s.fetch("GET", "http://m:1/x", timeout=20)
+            s.fetch("GET", "http://m:1/x", timeout=20)                  # two timeouts: open
+            self.assertIn("did not answer", s.fetch("GET", "http://m:1/x", timeout=20)[2])
+            sessions.TRACKER._s["metro"]["open_until"] = 0.0             # the pause is over
+            s.fetch("GET", "http://m:1/x", timeout=20)                  # the probe
+        self.assertEqual(seen, [20, 20, sessions.PROBE_TIMEOUT_S])
 
     def test_a_write_is_never_sent_twice(self):
         s = self.session([requests.ConnectionError("reset"), 200])

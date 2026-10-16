@@ -24,6 +24,12 @@ import requests
 AUDIT = os.path.join(os.getenv("AGENTIC_MCP_DATA") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"),
                      "audit.jsonl")
 TIMEOUT = float(os.getenv("AGENTIC_MCP_TIMEOUT") or os.getenv("CONNECTOR_TIMEOUT") or "20")
+# Connecting is given far less than answering: a controller on this network
+# accepts a connection in milliseconds, so one that has not in a few seconds is
+# not there (its host is off, or the packets are dropped). With one timeout for
+# both, a controller whose host was down held each caller twenty seconds just
+# to fail to connect. Answering keeps the whole TIMEOUT: a big read is slow.
+CONNECT_TIMEOUT = float(os.getenv("AGENTIC_MCP_CONNECT_TIMEOUT", "3"))
 POOL = int(os.getenv("AGENTIC_MCP_CONNECTIONS", "32"))
 
 
@@ -99,6 +105,8 @@ class Session:
         # A read that got no answer at all is asked once more: a connection
         # dropped between two requests is not the controller being down. A
         # write is never repeated here: it may have arrived.
+        if not write and tracker.probing(key):
+            timeout = min(timeout, sessions.PROBE_TIMEOUT_S)
         full = tracker.enter(key)
         if full:
             return 0, "", f"NotAsked: {full}"
@@ -112,7 +120,8 @@ class Session:
         for attempt in range(1 if write else 2):
             started = time.monotonic()
             try:
-                r = self.http.request(method, url, json=body, auth=self._auth(), timeout=timeout,
+                r = self.http.request(method, url, json=body, auth=self._auth(),
+                                      timeout=(min(CONNECT_TIMEOUT, timeout), timeout),
                                       params=params,
                                       headers=headers or {"Accept": "application/json, */*;q=0.5"})
             except requests.RequestException as exc:
