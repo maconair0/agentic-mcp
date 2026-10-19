@@ -1,5 +1,9 @@
 # Agentic MCP
 
+> **Branch `ofc2026`.** The agentic MCP exactly as used for the OFC 2026 work: it ships the manifests of the
+> four lab controllers (TeraFlowSDN, ONOS, Ryu, TransportPCE) and their reply styles. The controller-neutral
+> version is on [`main`](https://github.com/maconair0/agentic-mcp/tree/main).
+
 One service that every SDN controller is onboarded to, and that an agent talks
 to in order to reach them. It replaces a hand-written MCP server per
 controller: a controller is added by uploading a document about it, not by
