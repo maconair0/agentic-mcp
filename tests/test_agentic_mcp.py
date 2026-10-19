@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 from tests import manifests_for_tests  # noqa: F401
 from agentic_mcp import agent, library
@@ -84,6 +85,7 @@ class TokenTests(unittest.TestCase):
     def test_so_does_the_mcp_endpoint_where_every_controllers_tools_are(self):
         self.assertEqual(self.http.get("/mcp/sse").status_code, 401)
         self.assertEqual(self.http.post("/mcp/messages/?session_id=x", json={}).status_code, 401)
+        self.assertEqual(self.http.post("/mcp", json={}).status_code, 401)
 
 
 class RuleTests(unittest.TestCase):
@@ -278,10 +280,91 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual([m for m in seen if "Exception" in m], [])
         self.assertEqual(self.desk.health()["mcp"], "/mcp/sse")
 
+    def test_10_a_client_of_streamable_http_lists_the_same_tools(self):
+        import requests
+        head = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+        hello = requests.post(self.desk.url + "/mcp", headers=head, timeout=10, json={
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                       "clientInfo": {"name": "test", "version": "0"}}})
+        self.assertEqual(hello.status_code, 200, hello.text)
+        self.assertEqual(hello.json()["result"]["serverInfo"]["name"], "agentic-mcp")
+        listed = requests.post(self.desk.url + "/mcp", headers=head, timeout=10,
+                               json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        names = [t["name"] for t in listed.json()["result"]["tools"]]
+        self.assertIn("desk_controllers", names)
+        self.assertEqual(self.desk.health()["mcp_http"], "/mcp")
+
     def test_7_a_service_that_is_not_there_is_said_plainly(self):
         gone = RemoteDesk("http://127.0.0.1:9")
         self.assertIn("not answering", gone.answers())
         self.assertEqual(gone.keys(), [])
+
+
+class ModelApiTests(unittest.TestCase):
+    """The same question to each API the model can be served by, with the API answered here."""
+
+    def setUp(self):
+        from agentic_mcp import model
+        self.model = model
+        for name in ("API", "URL", "KEY_ENV"):
+            self.addCleanup(setattr, model, name, getattr(model, name))
+        self.sent = []
+        real = model.requests.post
+        self.addCleanup(setattr, model.requests, "post", real)
+
+        def post(url, json=None, headers=None, timeout=None):
+            self.sent.append({"url": url, "json": json, "headers": headers or {}})
+            reply = self.replies.pop(0)
+            r = mock.Mock(status_code=reply[0])
+            r.json.return_value = reply[1]
+            r.raise_for_status = (lambda: None) if reply[0] < 400 else mock.Mock(side_effect=RuntimeError(reply[0]))
+            return r
+        model.requests.post = post
+
+    def use(self, api, url, key_env=""):
+        self.model.API, self.model.URL, self.model.KEY_ENV = api, url, key_env
+
+    def test_ollama_is_asked_for_json_on_its_own_api(self):
+        self.use("ollama", "http://gpu-box:11434")
+        self.replies = [(200, {"message": {"content": '{"action": "read_devices"}'}})]
+        self.assertEqual(self.model.chat_json("q", "qwen", max_tokens=40)["action"], "read_devices")
+        self.assertEqual(self.sent[0]["url"], "http://gpu-box:11434/api/chat")
+        self.assertEqual(self.sent[0]["json"]["options"]["num_predict"], 40)
+
+    def test_an_openai_compatible_server_gets_the_key_from_the_named_setting(self):
+        self.use("openai", "http://localhost:8000/v1", "TEST_MODEL_KEY")
+        self.replies = [(200, {"choices": [{"message": {"content": '```json\n{"controller": "core"}\n```'}}]})]
+        with mock.patch.dict(os.environ, {"TEST_MODEL_KEY": "k-123"}):
+            self.assertEqual(self.model.chat_json("q", "llama")["controller"], "core")
+        self.assertEqual(self.sent[0]["url"], "http://localhost:8000/v1/chat/completions")
+        self.assertEqual(self.sent[0]["headers"]["Authorization"], "Bearer k-123")
+        self.assertEqual(self.sent[0]["json"]["response_format"], {"type": "json_object"})
+
+    def test_a_server_without_json_mode_is_asked_again_in_plain_text(self):
+        self.use("openai", "http://localhost:1234/v1")
+        self.replies = [(400, {}), (200, {"choices": [{"message": {"content": 'Sure: {"action": "health"}'}}]})]
+        self.assertEqual(self.model.chat_json("q", "local")["action"], "health")
+        self.assertNotIn("response_format", self.sent[1]["json"])
+        self.assertNotIn("Authorization", self.sent[1]["headers"])
+
+    def test_anthropic_gets_its_own_headers(self):
+        self.use("anthropic", "https://api.anthropic.com", "TEST_MODEL_KEY")
+        self.replies = [(200, {"content": [{"type": "text", "text": '{"action": "read_links"}'}]})]
+        with mock.patch.dict(os.environ, {"TEST_MODEL_KEY": "k-456"}):
+            self.assertEqual(self.model.chat_json("q", "claude")["action"], "read_links")
+        self.assertEqual(self.sent[0]["url"], "https://api.anthropic.com/v1/messages")
+        self.assertEqual(self.sent[0]["headers"]["x-api-key"], "k-456")
+
+    def test_no_key_and_no_model_are_said_not_guessed(self):
+        self.use("anthropic", "https://api.anthropic.com", "TEST_MODEL_KEY_UNSET")
+        with self.assertRaises(RuntimeError):
+            self.model.chat_json("q", "claude")
+        with self.assertRaises(RuntimeError):
+            self.model.chat_json("q", "")
+        self.assertEqual(self.sent, [])
+        self.assertIn("NOT set", self.model.info("claude")["key"])
+        self.assertNotIn("k-", json.dumps(self.model.info("claude")))
 
 
 if __name__ == "__main__":

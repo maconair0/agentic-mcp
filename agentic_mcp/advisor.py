@@ -18,34 +18,22 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import Any, Dict, Iterable, List
 
-import requests
+from . import model as _model
 
-HOST = (os.getenv("AGENTIC_MCP_MODEL_URL") or os.getenv("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+HOST = _model.URL
 # Drafting a body is harder than choosing a verb: a larger model may be named
 # for it, and without one the agentic MCP's own small model is asked.
 MODEL = (os.getenv("AGENTIC_MCP_DRAFT_MODEL") or os.getenv("CONNECTOR_MODEL") or os.getenv("CENTRAL_MODEL")
-         or os.getenv("AGENTIC_MCP_MODEL") or "qwen2.5:3b-instruct-q4_K_M")
+         or os.getenv("AGENTIC_MCP_MODEL") or _model.default_model())
 
 
 def ask(prompt: str, timeout: float = 240.0) -> Any:
     """The model's answer as JSON, or None when it gave none that parses."""
     try:
-        got = requests.post(f"{HOST}/api/chat", timeout=timeout, json={
-            "model": MODEL, "stream": False, "format": "json",
-            "options": {"temperature": 0, "num_ctx": 8192},
-            "messages": [{"role": "user", "content": prompt}]}).json()
-        text = got["message"]["content"]
+        return _model.chat_json(prompt, MODEL, timeout, ollama_options={"num_ctx": 8192})
     except Exception:  # noqa: BLE001 - no model is a normal state here
-        return None
-    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
-    # A placeholder left bare ("rate": $rate) is the commonest slip.
-    text = re.sub(r":\s*(\$\w+)", r': "\1"', text)
-    try:
-        return json.loads(text)
-    except ValueError:
         return None
 
 

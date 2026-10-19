@@ -7,7 +7,7 @@ writing code.
 
 ```
         your agent            an operator, a script
-            │ MCP over SSE          │ HTTP
+            │ MCP                   │ HTTP
             └──────────┬────────────┘
                 ┌──────┴───────┐    its own small model, for requests in words
                 │ agentic MCP  │    its own manifests, approval queue, audit log
@@ -303,9 +303,13 @@ AGENTIC_MCP_DATA=/var/lib/agentic-mcp/site-b  AGENTIC_MCP_ENV_FILE=/etc/agentic-
 
 ## Talking to it
 
-**MCP:** `http://<host>:8400/mcp/sse`. One server holds every controller's
-tools, plus `desk_controllers`, `desk_kinds`, `desk_onboard` and `desk_ask`. A
-write tool takes `approved_by`. This needs the `mcp` package, version 1.x.
+**MCP:** `http://<host>:8400/mcp` (streamable HTTP, the transport of the
+current MCP specification) or `http://<host>:8400/mcp/sse` (SSE, for older
+clients). One server holds every controller's tools, plus `desk_controllers`,
+`desk_kinds`, `desk_onboard` and `desk_ask`. A write tool takes `approved_by`.
+This needs the `mcp` package, version 1.x (1.8 or newer for `/mcp`). With
+`AGENTIC_MCP_TOKEN` set, a client sends `Authorization: Bearer <token>`. See
+[Plugging in an AI agent](#plugging-in-an-ai-agent).
 
 **HTTP:**
 
@@ -335,6 +339,72 @@ desk.read("metro", "read_links")["data"]
 `install`, `kinds`, `list`, `show`, `tools`, `call`, `read`, `confirm`,
 `pending`, `approve`, `reject`, `ask`, `remove`).
 
+## Plugging in an AI agent
+
+The agent is a client of this service. Any model can drive it, hosted or run
+locally, as long as the program around the model speaks MCP. It sees one
+server whose tools are every onboarded controller's, named `<controller>_<tool>`.
+
+**Claude Code**
+
+```bash
+claude mcp add --transport http agentic-mcp http://<host>:8400/mcp \
+  --header "Authorization: Bearer $AGENTIC_MCP_TOKEN"
+```
+
+**A client configured with JSON** (Cursor, VS Code, and others that take a URL)
+
+```json
+{"mcpServers": {"agentic-mcp": {"url": "http://<host>:8400/mcp",
+                                "headers": {"Authorization": "Bearer <token>"}}}}
+```
+
+A client that only starts local programs (stdio) reaches it through a bridge:
+`npx mcp-remote http://<host>:8400/mcp --header "Authorization: Bearer <token>"`.
+
+**OpenAI Agents SDK**
+
+```python
+from agents import Agent, Runner
+from agents.mcp import MCPServerStreamableHttp
+
+async with MCPServerStreamableHttp(params={"url": "http://<host>:8400/mcp",
+                                           "headers": {"Authorization": "Bearer <token>"}}) as desk:
+    agent = Agent(name="operator", instructions="Read before you answer.", mcp_servers=[desk])
+    print((await Runner.run(agent, "which links are down on metro?")).final_output)
+```
+
+**LangChain / LangGraph**
+
+```python
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({"agentic-mcp": {"transport": "streamable_http",
+                                               "url": "http://<host>:8400/mcp"}})
+tools = await client.get_tools()          # hand these to any LangChain model
+```
+
+**A local model through Ollama**, with no framework:
+[`examples/ollama_agent.py`](examples/ollama_agent.py) lists the tools over
+MCP, offers them to an Ollama model that does tool calling, and runs the calls
+it asks for.
+
+```bash
+pip install mcp requests
+AGENTIC_MCP_URL=http://<host>:8400/mcp AGENT_MODEL=qwen3:30b-a3b-instruct-2507-q4_K_M \
+  python examples/ollama_agent.py "which devices does metro hold?"
+# -> metro_list_devices {}
+# The metro controller holds sw1 (metro-1), sw2 (metro-2) and sw3 (metro-3), all up.
+```
+
+A small model does better with fewer tools: `AGENT_TOOLS='^metro_'` offers
+only one controller's.
+
+Whatever drives it, a write is refused unless `approved_by` names a person, so
+a model can propose a change and never make one by itself. A hosted model
+receives what the controllers answer; keep that in mind for a network's
+inventory.
+
 ## The agent inside it
 
 A request in words has to become a controller, a verb and arguments. A request
@@ -345,10 +415,35 @@ contract's verbs. What it answers is checked against those lists before
 anything is done, so a wrong answer is a request not understood and never a
 call nobody asked for. It never decides a write.
 
-The model is served by [Ollama](https://ollama.com). The default,
-`qwen2.5:3b-instruct-q4_K_M` (1.9 GB), got 14 of 16 loosely worded requests
-right in about 1.8 seconds on a CPU. Without a model everything else works;
-only loosely worded requests go unanswered.
+By default the model is served by [Ollama](https://ollama.com), on this machine
+or another. The default, `qwen2.5:3b-instruct-q4_K_M` (1.9 GB), got 14 of 16
+loosely worded requests right in about 1.8 seconds on a CPU. Without a model
+everything else works; only loosely worded requests go unanswered. The same
+model, or `AGENTIC_MCP_DRAFT_MODEL`, drafts manifests at onboarding; a person
+confirms every draft.
+
+Another API is a setting (`agentic_mcp/model.py`):
+
+| `AGENTIC_MCP_MODEL_API` | Serves it | `AGENTIC_MCP_MODEL_URL` default | Key |
+|---|---|---|---|
+| `ollama` (default) | Ollama | `$OLLAMA_HOST` or `http://localhost:11434` | none |
+| `openai` | OpenAI, or any server with its chat-completions API: vLLM, LM Studio, llama.cpp server, LiteLLM, Ollama's `/v1` | `https://api.openai.com/v1` | `$OPENAI_API_KEY`, when the server needs one |
+| `anthropic` | Anthropic | `https://api.anthropic.com` | `$ANTHROPIC_API_KEY` |
+
+```bash
+# a local OpenAI-compatible server (here Ollama's own /v1)
+AGENTIC_MCP_MODEL_API=openai AGENTIC_MCP_MODEL_URL=http://localhost:11434/v1 \
+AGENTIC_MCP_MODEL=qwen2.5:3b-instruct-q4_K_M python -m agentic_mcp serve
+
+# a hosted API: the key stays in the environment, named, never in a file here
+export ANTHROPIC_API_KEY=...        # or OPENAI_API_KEY
+AGENTIC_MCP_MODEL_API=anthropic AGENTIC_MCP_MODEL=<model name> python -m agentic_mcp serve
+```
+
+`AGENTIC_MCP_MODEL_KEY_ENV` names a different setting to read the key from.
+`GET /health` shows which API and model are in use, and whether the key is set,
+never the key. A hosted API receives the text of each request asked in words
+that no rule could read; the default stays on your own machine.
 
 ## Staying up, and knowing what it holds
 
@@ -400,8 +495,11 @@ is the only place a verb is defined (see [Adding a verb](#adding-a-verb)), and
 | `AGENTIC_MCP_PORT`, `AGENTIC_MCP_BIND` | where it listens (8400, 127.0.0.1) |
 | `AGENTIC_MCP_DATA` | its folder: manifests, onboarded controllers, queue, audit log (`agentic_mcp/data`) |
 | `AGENTIC_MCP_TOKEN` | when set, anything that is not a read of the service needs `Authorization: Bearer <token>`, and so does the MCP endpoint |
-| `AGENTIC_MCP_MODEL` | the model for requests in words |
-| `AGENTIC_MCP_MODEL_URL` | the Ollama that serves it; another machine works |
+| `AGENTIC_MCP_MODEL_API` | `ollama` (default), `openai` (and compatible servers) or `anthropic` |
+| `AGENTIC_MCP_MODEL` | the model for requests in words (by default `qwen2.5:3b-instruct-q4_K_M` on Ollama; none for a hosted API) |
+| `AGENTIC_MCP_MODEL_URL` | where it is served; another machine works |
+| `AGENTIC_MCP_MODEL_KEY_ENV` | the name of the setting holding the API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) |
+| `AGENTIC_MCP_DRAFT_MODEL` | a larger model for drafts at onboarding, on the same API |
 | `AGENTIC_MCP_MODEL_GPU=0` | keep the model on the CPU |
 | `AGENTIC_MCP_TIMEOUT` | seconds to wait for a controller (10) |
 | `AGENTIC_MCP_CONNECTIONS` | connections kept to each controller (32) |
@@ -445,8 +543,11 @@ agentic_mcp/
   queue.py               writes waiting for a person, and what was applied
   desk.py                every controller's seat
   agent.py               requests in words
-  service.py             HTTP and MCP
+  advisor.py             drafts at onboarding, for a person to confirm
+  model.py               the one place a language model is called: Ollama, OpenAI-compatible, Anthropic
+  service.py             HTTP and MCP (streamable HTTP and SSE)
   client.py              the service, from another Python process
 manifests/example/       an example manifest and a template
+examples/ollama_agent.py an agent of your own: a local model whose tools are the service's
 tests/
 ```

@@ -9,8 +9,8 @@ onboarded and from the verbs of the contract, as JSON. Whatever it answers is
 checked against those two lists before it is used, so a wrong answer is a
 request not understood and never a call nobody asked for.
 
-The model is small on purpose (AGENTIC_MCP_MODEL, served by Ollama at
-AGENTIC_MCP_MODEL_URL): it has to answer in about a second on a CPU, and
+The model is small on purpose (AGENTIC_MCP_MODEL, by default served by Ollama;
+model.py says how to name another API): it has to answer in about a second on a CPU, and
 choosing one of twenty is a task a small model does well. It never decides a
 write. A write asked for in words is answered with a dry run, and is sent only
 when the request says confirm and names who approved it.
@@ -23,13 +23,12 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-import requests
-
+from . import model as _model
 from .session import rows as find_rows
 from .verbs import VERBS
 
-MODEL_URL = (os.getenv("AGENTIC_MCP_MODEL_URL") or os.getenv("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
-MODEL = os.getenv("AGENTIC_MCP_MODEL", "qwen2.5:3b-instruct-q4_K_M")
+MODEL_URL = _model.URL
+MODEL = os.getenv("AGENTIC_MCP_MODEL") or _model.default_model()
 # -1 lets Ollama use a GPU when there is one; 0 keeps the model on the CPU.
 MODEL_GPU_LAYERS = int(os.getenv("AGENTIC_MCP_MODEL_GPU", "-1"))
 OWN = ("controllers", "describe")
@@ -46,7 +45,10 @@ WORDS: List[Tuple[str, str]] = (
 
 
 def model_info() -> Dict[str, Any]:
-    return {"name": MODEL, "at": MODEL_URL, "on": "cpu" if MODEL_GPU_LAYERS == 0 else "gpu when there is one"}
+    out = _model.info(MODEL)
+    if _model.API == "ollama":
+        out["on"] = "cpu" if MODEL_GPU_LAYERS == 0 else "gpu when there is one"
+    return out
 
 
 def _plain(text: str) -> str:
@@ -114,12 +116,8 @@ EXAMPLES = tuple((q, verb) for verb, rule in VERBS.items() for q in rule.get("ex
 
 
 def _say(prompt: str, timeout: float) -> Any:
-    got = requests.post(f"{MODEL_URL}/api/chat", timeout=timeout, json={
-        "model": MODEL, "stream": False, "format": "json", "keep_alive": "30m",
-        "options": {"temperature": 0, "num_ctx": 2048, "num_predict": 40,
-                    **({"num_gpu": 0} if MODEL_GPU_LAYERS == 0 else {})},
-        "messages": [{"role": "user", "content": prompt}]}).json()
-    return json.loads(got["message"]["content"])
+    return _model.chat_json(prompt, MODEL, timeout, max_tokens=40,
+                            ollama_options={"num_ctx": 2048, **({"num_gpu": 0} if MODEL_GPU_LAYERS == 0 else {})})
 
 
 def by_model(text: str, known: Dict[str, Dict[str, str]], timeout: float = 60.0) -> Optional[Dict[str, Any]]:

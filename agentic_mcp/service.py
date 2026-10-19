@@ -9,9 +9,10 @@ knows nothing about what uses it.
 Two ways in:
 
   HTTP, JSON      /controllers, /controllers/<key>/call, /manifests, /guides, /ask ...
-  MCP, over SSE   /mcp/sse, for a client that speaks the Model Context
-                  Protocol: every controller's tools under one server, plus
-                  tools to list, onboard and ask.
+  MCP             /mcp (streamable HTTP, the current transport) and /mcp/sse
+                  (SSE, for older clients), for a client that speaks the Model
+                  Context Protocol: every controller's tools under one server,
+                  plus tools to list, onboard and ask.
 
     python -m agentic_mcp serve --port 8400
 
@@ -106,6 +107,7 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
         return {"ok": True, "service": "agentic-mcp", "uptime_s": round(time.time() - STARTED),
                 "controllers": desk.keys(), "holding": len(desk.keys()), "kinds": [k["kind"] for k in desk.kinds()],
                 "model": _agent.model_info(), "mcp": getattr(app.state, "mcp", ""),
+                "mcp_http": getattr(app.state, "mcp_http", ""),
                 "sessions": {r["controller"]: r["state"] for r in tracker.view()}}
 
     @app.get("/topology")
@@ -349,6 +351,38 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
 
     app.router.routes.append(Route("/mcp/sse", endpoint=Stream()))
     app.router.routes.append(Mount("/mcp/messages/", app=sse.handle_post_message))
+    _mount_streamable(app, server)
+
+
+def _mount_streamable(app: FastAPI, server: Any) -> None:
+    """The same MCP server over streamable HTTP at /mcp: one POST per message,
+    answered as JSON. Stateless, so any replica behind a balancer can answer."""
+    try:
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+        from starlette.routing import Route
+    except Exception:  # noqa: BLE001 - an mcp release from before streamable HTTP
+        app.state.mcp_http = "not served: this mcp package has no streamable HTTP (mcp>=1.8)"
+        return
+    import contextlib
+    manager = StreamableHTTPSessionManager(app=server, stateless=True, json_response=True)
+
+    class Endpoint:
+        async def __call__(self, scope, receive, send):
+            await manager.handle_request(scope, receive, send)
+
+    # The manager runs for as long as the service: inside its lifespan, around
+    # whatever else starts and stops with it.
+    before = app.router.lifespan_context
+
+    @contextlib.asynccontextmanager
+    async def lifespan(a):
+        async with manager.run():
+            async with before(a) as state:
+                yield state
+
+    app.router.lifespan_context = lifespan
+    app.router.routes.append(Route("/mcp", endpoint=Endpoint(), methods=["GET", "POST", "DELETE"]))
+    app.state.mcp_http = "/mcp"
 
 
 def serve(host: str = "127.0.0.1", port: int = 8400) -> None:
