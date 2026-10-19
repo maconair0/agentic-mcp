@@ -23,9 +23,9 @@ from tests import example_controller
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXAMPLE = os.path.join(ROOT, "manifests", "example", "metro.yaml")
-KNOWN = {"onos": {"label": "ONOS", "family": "onos"}, "ryu": {"label": "Ryu", "family": "ryu"},
-         "teraflow": {"label": "TeraFlowSDN", "family": "teraflowsdn"},
-         "transportpce": {"label": "TransportPCE", "family": "transportpce"}}
+KNOWN = {"core": {"label": "Core", "family": "packet_core"}, "edge": {"label": "Edge", "family": "switch"},
+         "access": {"label": "Access", "family": "optical_access"},
+         "optical": {"label": "Optical", "family": "optical"}}
 
 
 class StandAloneTests(unittest.TestCase):
@@ -89,30 +89,30 @@ class TokenTests(unittest.TestCase):
 class RuleTests(unittest.TestCase):
     def test_a_plain_request_is_read_with_no_model(self):
         for text, controller, action in (
-                ("list the devices on onos", "onos", "read_devices"),
-                ("show the links of transportpce", "transportpce", "read_links"),
-                ("which services does teraflow hold", "teraflow", "read_services"),
-                ("free spectrum on transportpce", "transportpce", "read_spectrum"),
+                ("list the devices on core", "core", "read_devices"),
+                ("show the links of optical", "optical", "read_links"),
+                ("which services does access hold", "access", "read_services"),
+                ("free spectrum on optical", "optical", "read_spectrum"),
                 ("is every controller healthy", "all", "health"),
                 ("which controllers are onboarded", "all", "controllers"),
-                ("delete service name=LP3 on transportpce", "transportpce", "teardown")):
+                ("delete service name=LP3 on optical", "optical", "teardown")):
             got = agent.by_rule(text, KNOWN)
             self.assertEqual((got["controller"], got["action"]), (controller, action), text)
 
     def test_arguments_are_read_from_the_request(self):
-        got = agent.by_rule("create service name=demo vlan=20 on ryu", KNOWN)
+        got = agent.by_rule("create service name=demo vlan=20 on edge", KNOWN)
         self.assertEqual(got["arguments"], {"name": "demo", "vlan": 20})
 
     def test_a_request_that_names_no_controller_is_not_plain(self):
-        # "the edge switches" is Ryu here, and knowing that takes knowing what
-        # each controller runs
-        self.assertIsNone(agent.by_rule("what has been set up on the edge switches so far", KNOWN))
+        # "the boxes at each site" is one of the controllers, and knowing which
+        # takes knowing what each controller runs
+        self.assertIsNone(agent.by_rule("what has been set up on the boxes at each site so far", KNOWN))
 
     def test_a_change_never_goes_to_every_controller(self):
         self.assertIsNone(agent.by_rule("delete the service name=x on all controllers", KNOWN))
 
     def test_two_reads_in_one_request_are_not_plain(self):
-        self.assertIsNone(agent.by_rule("devices and links on onos", KNOWN))
+        self.assertIsNone(agent.by_rule("devices and links on core", KNOWN))
 
 
 class ModelTests(unittest.TestCase):
@@ -130,15 +130,15 @@ class ModelTests(unittest.TestCase):
         agent._say = say
 
     def test_it_is_asked_two_small_questions(self):
-        self.answer({"action": "read_alarms"}, {"controller": "transportpce"})
+        self.answer({"action": "read_alarms"}, {"controller": "optical"})
         got = agent.by_model("anything complaining on the optical core", KNOWN)
-        self.assertEqual((got["controller"], got["action"]), ("transportpce", "read_alarms"))
+        self.assertEqual((got["controller"], got["action"]), ("optical", "read_alarms"))
         self.assertEqual(len(self.said), 2)
 
     def test_a_named_controller_is_not_asked_about(self):
         self.answer({"action": "read_statistics"})
-        got = agent.by_model("how busy are the ports on the ONOS routers", KNOWN)
-        self.assertEqual(got["controller"], "onos")
+        got = agent.by_model("how busy are the ports on the core routers", KNOWN)
+        self.assertEqual(got["controller"], "core")
         self.assertEqual(len(self.said), 1)
 
     def test_an_action_it_made_up_is_not_used(self):
@@ -196,7 +196,7 @@ class ServiceTests(unittest.TestCase):
             got = self.desk.install_manifest(fh.read(), "metro.yaml")
         self.assertTrue(got["ok"])
         self.assertIn("example_metro", [k["kind"] for k in self.desk.kinds()])
-        bad = self.desk.install_manifest("manifest: edgelm.controller/v1\nkind: nope\n", "bad.yaml")
+        bad = self.desk.install_manifest("manifest: agentic-mcp.controller/v1\nkind: nope\n", "bad.yaml")
         self.assertFalse(bad["ok"])
         self.assertIn("To provision", self.desk.guide("example_metro"))
 

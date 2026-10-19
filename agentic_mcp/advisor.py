@@ -1,10 +1,10 @@
 """
 What the model is asked, and how far its answer is trusted.
 
-Tried on the four controllers here (12 October 2026), a local model was:
+Tried on four real controllers (12 October 2026), a local model was:
 
   right   telling a read from a write by a documentation page's own titles
-          (the two POSTs of Ryu's that only read, out of seventeen);
+          (the two POSTs of one controller that only read, out of seventeen);
   right   drafting a request body for a small, flat schema;
   wrong   choosing which operation holds a controller's free spectrum, with
           0.95 confidence, and drafting a body for a deep schema (OpenROADM's

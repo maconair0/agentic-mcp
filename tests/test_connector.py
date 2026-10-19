@@ -92,7 +92,7 @@ class DiscoverTests(unittest.TestCase):
         http = FakeHttp({("GET", "http://ctl:1/stats/switches"): [1, 2]})
         s = Session({"key": "c", "base_url": "http://ctl:1"}, env={}, http=http)
         found = discover.discover("http://ctl:1", s.fetch)
-        self.assertIn("manifest of kind ryu", found["styles"])
+        self.assertIn("manifest of kind switch", found["styles"])
         self.assertTrue(found["operations"])
 
 

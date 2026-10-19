@@ -1,7 +1,7 @@
 """
 Writes that wait for a person, and tools that are data.
 
-Ryu has no code of its own in the agentic MCP: its tools are entries in its
+A switch controller has no code of its own in the agentic MCP: its tools are entries in its
 manifest. What its MCP server's code did has to hold all the same: a write is
 checked and queued and never sent by the call that asked for it; it is sent
 once, by whoever holds the operator's token; what was applied is put back on a
@@ -26,8 +26,8 @@ FLOWS = {"14549250": [{"priority": 0, "match": {}, "actions": ["OUTPUT:CONTROLLE
                        "actions": ["PUSH_VLAN:33024", "SET_FIELD: {vlan_vid:4198}", "OUTPUT:3"]}]}
 
 
-class Ryu:
-    """Stands where Ryu's REST API is."""
+class Switch:
+    """Stands where the switch controller's REST API is."""
 
     def __init__(self):
         self.sent = []
@@ -52,11 +52,11 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
-        self.ryu = Ryu()
+        self.switch = Switch()
         from agentic_mcp import discover, manifest
-        m = {"key": "ryu", "label": "Ryu", "base_url": "http://r:1", "family": "ryu", "defaults": {}, "verbs": {}}
-        manifest.declare(m, next(f for f in discover.families() if f["family"] == "ryu"), [])
-        self.session = Session(m, env={"RYU_MCP_APPROVER_TOKEN": "s3cret"}, http=self.ryu,
+        m = {"key": "switch", "label": "Switch", "base_url": "http://r:1", "family": "switch", "defaults": {}, "verbs": {}}
+        manifest.declare(m, next(f for f in discover.families() if f["family"] == "switch"), [])
+        self.session = Session(m, env={"SWITCH_APPROVER_TOKEN": "s3cret"}, http=self.switch,
                                audit=os.path.join(self.dir.name, "audit.jsonl"),
                                queue=Queue(os.path.join(self.dir.name, "queue.json")))
         self.tools = skills.tools_for(self.session, self.dir.name, lambda: "")
@@ -67,12 +67,12 @@ class Base(unittest.TestCase):
         return json.loads(got[0]), got[1]
 
     def posts(self):
-        return [s for s in self.ryu.sent if s[0] == "POST"]
+        return [s for s in self.switch.sent if s[0] == "POST"]
 
 
 class QueuedWriteTests(Base):
     def test_a_write_is_queued_and_nothing_reaches_the_controller(self):
-        got, _ = self.call("ryu_map_vlan", **self.vlan)
+        got, _ = self.call("switch_map_vlan", **self.vlan)
         self.assertEqual(got["status"], "queued_for_approval")
         self.assertEqual(got["summary"], "map 0000000000de0102 port 1 <-> uplink 3 vlan 102")
         self.assertEqual(got["calls"], 2)
@@ -81,53 +81,53 @@ class QueuedWriteTests(Base):
     def test_what_breaks_the_manifests_rules_is_refused_before_it_is_queued(self):
         for bad, why in ((dict(self.vlan, vlan_id=5000), "vlan_id must be 1..4094"),
                          (dict(self.vlan, uplink_port=1), "client_port and uplink_port are the same")):
-            got, _ = self.call("ryu_map_vlan", **bad)
+            got, _ = self.call("switch_map_vlan", **bad)
             self.assertEqual((got["ok"], got["error"]), (False, "invalid"))
             self.assertIn(why, got["detail"])
-        got, _ = self.call("ryu_add_flow", dpid="1", match={"in_prot": 1}, actions=[{"type": "OUTPUT", "port": 2}])
+        got, _ = self.call("switch_add_flow", dpid="1", match={"in_prot": 1}, actions=[{"type": "OUTPUT", "port": 2}])
         self.assertIn("in_prot", got["detail"])
         self.assertEqual(self.session.queue.pending(), [])
 
     def test_only_the_operators_token_approves(self):
-        queued, _ = self.call("ryu_map_vlan", **self.vlan)
-        got, _ = self.call("ryu_approve_request", approval_id=queued["approval_id"], approver_token="guess")
+        queued, _ = self.call("switch_map_vlan", **self.vlan)
+        got, _ = self.call("switch_approve_request", approval_id=queued["approval_id"], approver_token="guess")
         self.assertEqual(got["error"], "refused")
         self.assertEqual(self.posts(), [])
-        got, _ = self.call("ryu_approve_request", approval_id=queued["approval_id"], approver_token="s3cret")
-        self.assertEqual((got["ok"], got["state"], got["action"]), (True, "applied", "ryu_map_vlan"))
+        got, _ = self.call("switch_approve_request", approval_id=queued["approval_id"], approver_token="s3cret")
+        self.assertEqual((got["ok"], got["state"], got["action"]), (True, "applied", "switch_map_vlan"))
         self.assertEqual([p[1] for p in self.posts()], ["/stats/flowentry/add"] * 2)
 
     def test_with_no_token_configured_nothing_is_approved_this_way(self):
         self.session.env = {}
-        queued, _ = self.call("ryu_map_vlan", **self.vlan)
-        got, _ = self.call("ryu_approve_request", approval_id=queued["approval_id"], approver_token="")
+        queued, _ = self.call("switch_map_vlan", **self.vlan)
+        got, _ = self.call("switch_approve_request", approval_id=queued["approval_id"], approver_token="")
         self.assertEqual(got["error"], "disabled")
 
     def test_a_request_is_sent_once(self):
-        queued, _ = self.call("ryu_map_vlan", **self.vlan)
+        queued, _ = self.call("switch_map_vlan", **self.vlan)
         self.session.apply_queued(queued["approval_id"], "root")
         again = self.session.apply_queued(queued["approval_id"], "root")
         self.assertFalse(again["ok"])
         self.assertEqual(len(self.posts()), 2)
 
     def test_a_refusal_by_the_controller_is_a_failed_request_and_is_not_replayed(self):
-        self.ryu.fail = True
-        queued, _ = self.call("ryu_map_vlan", **self.vlan)
+        self.switch.fail = True
+        queued, _ = self.call("switch_map_vlan", **self.vlan)
         got = self.session.apply_queued(queued["approval_id"], "root")
         self.assertEqual(got["state"], "failed")
-        self.assertEqual(self.session.queue.applied("ryu"), [])
+        self.assertEqual(self.session.queue.applied("switch"), [])
 
     def test_what_was_applied_is_put_back_in_the_order_it_was_applied(self):
-        for tool in ("ryu_map_vlan", "ryu_unmap_vlan"):
+        for tool in ("switch_map_vlan", "switch_unmap_vlan"):
             queued, _ = self.call(tool, **self.vlan)
             self.session.apply_queued(queued["approval_id"], "root")
-        del self.ryu.sent[:]
+        del self.switch.sent[:]
         got = self.session.replay()
         self.assertEqual(len(got["replayed"]), 2)
         self.assertEqual([p[1].rsplit("/", 1)[1] for p in self.posts()], ["add", "add", "delete_strict", "delete_strict"])
 
     def test_a_replay_does_not_count_against_the_hourly_limit(self):
-        queued, _ = self.call("ryu_map_vlan", **self.vlan)
+        queued, _ = self.call("switch_map_vlan", **self.vlan)
         self.session.apply_queued(queued["approval_id"], "root")
         self.session.manifest["verbs"]["provision"]["policy"] = {"max_per_hour": 2}
         for _ in range(5):
@@ -136,9 +136,9 @@ class QueuedWriteTests(Base):
 
     def test_the_limit_refuses_before_queueing(self):
         self.session.manifest["verbs"]["provision"]["policy"] = {"max_per_hour": 1}
-        queued, _ = self.call("ryu_map_vlan", **self.vlan)
+        queued, _ = self.call("switch_map_vlan", **self.vlan)
         self.session.apply_queued(queued["approval_id"], "root")
-        got, _ = self.call("ryu_map_vlan", **dict(self.vlan, vlan_id=103))
+        got, _ = self.call("switch_map_vlan", **dict(self.vlan, vlan_id=103))
         self.assertEqual(got["error"], "rate_limited")
 
 
@@ -148,7 +148,7 @@ class ReplayWatchTests(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
-        self.path = os.path.join(self.dir.name, "ryu.seen.json")
+        self.path = os.path.join(self.dir.name, "switch.seen.json")
         self.three = {"ok": True, "rows": [{"dpid": 1}, {"dpid": 2}, {"dpid": 3}]}
 
     def test_the_first_look_ever_is_the_starting_point(self):
@@ -197,14 +197,14 @@ class SmallThingsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             checked({"each": {"actions": {"field": "type", "one_of": ["OUTPUT"]}}}, {"actions": [{"type": "FLY"}]})
 
-    def test_no_code_for_ryu_is_left_in_the_agentic_mcp(self):
+    def test_no_code_for_switch_is_left_in_the_agentic_mcp(self):
         root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agentic_mcp")
-        self.assertFalse(os.path.exists(os.path.join(root, "skills", "ryu")))
+        self.assertFalse(os.path.exists(os.path.join(root, "skills", "switch")))
 
 
 
-class TransportPceTests(unittest.TestCase):
-    """TransportPCE's tools as data: the safeguards its code had."""
+class OpticalTests(unittest.TestCase):
+    """An optical controller's tools as data: the safeguards its code had."""
 
     def setUp(self):
         from agentic_mcp import discover, manifest
@@ -224,10 +224,10 @@ class TransportPceTests(unittest.TestCase):
                     status_code, headers = status, {"content-type": "application/json"}
                     text = globals()["json"].dumps(body) if not isinstance(body, str) else body
                 return R()
-        m = {"key": "transportpce", "label": "TransportPCE", "base_url": "http://t:1", "family": "transportpce",
+        m = {"key": "optical", "label": "Optical", "base_url": "http://t:1", "family": "optical",
              "defaults": {}, "verbs": {}, "api": {"restconf_root": "/rests"}}
-        manifest.declare(m, next(f for f in discover.families() if f["family"] == "transportpce"), [])
-        self.session = Session(m, env={"TPCE_MCP_APPROVER_TOKEN": "t0k"}, http=Http(),
+        manifest.declare(m, next(f for f in discover.families() if f["family"] == "optical"), [])
+        self.session = Session(m, env={"OPTICAL_APPROVER_TOKEN": "t0k"}, http=Http(),
                                audit=os.path.join(self.dir.name, "audit.jsonl"),
                                queue=Queue(os.path.join(self.dir.name, "queue.json")))
         self.tools = skills.tools_for(self.session, self.dir.name, lambda: "")
@@ -243,7 +243,7 @@ class TransportPceTests(unittest.TestCase):
         return json.loads(text)
 
     def path(self):
-        return self.call("tpce_compute_path", service_name="p", service_a_end=self.end, service_z_end=self.end)
+        return self.call("optical_compute_path", service_name="p", service_a_end=self.end, service_z_end=self.end)
 
     def test_a_path_computation_is_armed_first(self):
         self.answers["service-list"] = self.services("inService")
@@ -268,20 +268,20 @@ class TransportPceTests(unittest.TestCase):
 
     def test_an_empty_datastore_is_an_empty_answer_and_a_dead_controller_is_not(self):
         self.answers["service-list"] = (409, '{"errors": {"error": [{"error-tag": "data-missing"}]}}')
-        raw = self.call("tpce_list_services")
+        raw = self.call("optical_list_services")
         self.assertIsNone(raw["raw"]["services"])
         self.answers["service-list"] = (500, "boom")
-        text, is_error = self.tools["tpce_list_services"].fn()
+        text, is_error = self.tools["optical_list_services"].fn()
         self.assertTrue(is_error)
 
     def test_a_create_is_queued_and_a_refusal_inside_a_200_is_a_failure(self):
-        queued = self.call("tpce_service_create", service_name="LP9", service_a_end=self.end, service_z_end=self.end)
+        queued = self.call("optical_service_create", service_name="LP9", service_a_end=self.end, service_z_end=self.end)
         self.assertEqual((queued["status"], queued["target"]), ("queued_for_approval", "LP9"))
         self.assertEqual(queued["summary"], "create OpenROADM service LP9 (X -> X, 100G)")
         self.assertEqual(self.sent, [])
         self.answers["service-create"] = (200, {"output": {"configuration-response-common": {
             "response-code": "500", "response-message": "no path"}}})
-        got = self.call("tpce_approve_request", approval_id=queued["approval_id"], approver_token="t0k")
+        got = self.call("optical_approve_request", approval_id=queued["approval_id"], approver_token="t0k")
         self.assertEqual((got["ok"], got["state"]), (False, "failed"))
 
 class CollectTests(unittest.TestCase):

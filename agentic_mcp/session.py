@@ -23,7 +23,11 @@ import requests
 
 AUDIT = os.path.join(os.getenv("AGENTIC_MCP_DATA") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"),
                      "audit.jsonl")
-TIMEOUT = float(os.getenv("AGENTIC_MCP_TIMEOUT") or os.getenv("CONNECTOR_TIMEOUT") or "20")
+# How long a controller may take to answer one request. Ten seconds covers the
+# slowest calls seen in practice (a write of a few seconds) with room to spare;
+# a longer default lets a controller that hangs hold its first caller for the
+# whole of it. A controller whose reads are slower sets AGENTIC_MCP_TIMEOUT higher.
+TIMEOUT = float(os.getenv("AGENTIC_MCP_TIMEOUT") or os.getenv("CONNECTOR_TIMEOUT") or "10")
 # Connecting is given far less than answering: a controller on this network
 # accepts a connection in milliseconds, so one that has not in a few seconds is
 # not there (its host is off, or the packets are dropped). With one timeout for

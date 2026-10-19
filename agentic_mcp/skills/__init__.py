@@ -3,7 +3,7 @@ What a session offers for a controller of a known kind.
 
 A kind's controller manifest (library.py) holds its verbs and its named tools
 as data. A skill (this package) is code, used only when the manifest names it
-(`skill: ryu`), for tools that more than data is needed for. Every controller
+(`skill: <name>`), for tools that more than data is needed for. Every controller
 also gets one tool per verb its manifest maps.
 """
 from __future__ import annotations

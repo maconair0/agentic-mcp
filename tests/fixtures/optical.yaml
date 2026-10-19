@@ -1,21 +1,21 @@
+# Test fixture (not a shipped manifest): an optical controller with queued writes.
 # A controller manifest in the standard form (agentic-mcp.controller/v1).
 # Upload it to the agentic MCP and onboard the controller.
 # MANIFEST_FORMAT.md describes every section.
 manifest: agentic-mcp.controller/v1
-kind: transportpce
-title: TransportPCE
+kind: optical
+title: Example optical controller
 version: '1'
 domain: optical
-about: 'OpenDaylight TransportPCE, an OpenROADM optical controller. It publishes its whole API (an OpenAPI document and RESTCONF), so its operations
-  are read from the controller itself.'
+about: 'A test fixture: an OpenROADM optical controller that publishes its API, used by the tests only.'
 recognise:
-  operation_contains: transportpce-pce:path-computation-request
+  operation_contains: example-pce:path-computation-request
 api:
   style: json
   openapi:
   - /openapi/api/v3/single
 quirks:
-- After any service-create or service-delete, TransportPCE treats the result of the next path computation as the
+- After any service-create or service-delete, the controller treats the result of the next path computation as the
   answer to that service and renders it onto the devices. A service-feasibility-check has to be sent first to stop
   that.
 - It works on one service at a time. A second create or delete sent while one is being set up or taken down replaces
@@ -29,19 +29,19 @@ quirks:
 limits:
   service creates per hour: 4
   service deletes per hour: 2
-guide: A service on TransportPCE is a lightpath between two transponders (or two ROADM ports), created with service-create
+guide: A service on the controller is a lightpath between two transponders (or two ROADM ports), created with service-create
   and removed with service-delete. Creating one walks the whole renderer and takes one to three minutes; it is in
   service when its operational-state is inService.
 verbs:
   read_devices:
-    operation: GET /rests/data/transportpce-portmapping:network
+    operation: GET /rests/data/example-portmapping:network
     view:
-      rows: transportpce-portmapping:network.nodes
+      rows: example-portmapping:network.nodes
       id: node-id
       type: node-info.node-type
       model: node-info.node-model
   read_ports:
-    operation: GET /rests/data/transportpce-portmapping:network/nodes={node_id}
+    operation: GET /rests/data/example-portmapping:network/nodes={node_id}
   read_links:
     operation: GET /rests/data/ietf-network:networks/network=openroadm-topology
     view:
@@ -72,7 +72,7 @@ verbs:
     operation: POST /rests/operations/org-openroadm-service:service-feasibility-check
     reads: true
   compute_path:
-    operation: POST /rests/operations/transportpce-pce:path-computation-request
+    operation: POST /rests/operations/example-pce:path-computation-request
     reads: true
     why: Send a service-feasibility-check first; see what to know about it.
   provision:
@@ -106,35 +106,35 @@ verbs:
           service-name: $name
           tail-retention: 'no'
 provides:
-  read_devices: tpce_get_portmapping
-  read_device: tpce_get_node_status
-  read_ports: tpce_get_portmapping
-  read_links: tpce_get_topology
-  read_services: tpce_list_services
-  read_service: tpce_get_service
-  compute_path: tpce_compute_path
-  read_spectrum: tpce_get_topology
-  provision: tpce_service_create
-  teardown: tpce_service_delete
-  health: tpce_health_check
+  read_devices: optical_get_portmapping
+  read_device: optical_get_node_status
+  read_ports: optical_get_portmapping
+  read_links: optical_get_topology
+  read_services: optical_list_services
+  read_service: optical_get_service
+  compute_path: optical_compute_path
+  read_spectrum: optical_get_topology
+  provision: optical_service_create
+  teardown: optical_service_delete
+  health: optical_health_check
 tools:
-- name: tpce_health_check
-  description: Is TransportPCE reachable, and is odl-transportpce actually installed? A Karaf that has started but
+- name: optical_health_check
+  description: Is the controller reachable, and is odl-optical actually installed? A Karaf that has started but
     not finished installing the feature answers TCP and then 404s every model path, so this reads a model path.
   schema:
     properties: {}
-    title: tpce_health_checkArguments
+    title: optical_health_checkArguments
     type: object
   steps:
   - as: pm
     method: GET
-    path: /rests/data/transportpce-portmapping:network
+    path: /rests/data/example-portmapping:network
     timeout: 60
     empty_if: data-missing
   reply:
     raw: true
-- name: tpce_get_topology
-  description: 'Summarise a TransportPCE topology: node and link counts, node types, sample ids. network: openroadm-topology
+- name: optical_get_topology
+  description: 'Summarise a the controller topology: node and link counts, node types, sample ids. network: openroadm-topology
     (default), otn-topology, openroadm-network, clli-network. Pass raw=true for the full OpenROADM payload, which
     is large — a real topology runs to megabytes, so the summary is the default.'
   schema:
@@ -147,7 +147,7 @@ tools:
         default: false
         title: Raw
         type: boolean
-    title: tpce_get_topologyArguments
+    title: optical_get_topologyArguments
     type: object
   steps:
   - as: net
@@ -157,8 +157,8 @@ tools:
     empty_if: data-missing
   reply:
     raw: true
-- name: tpce_get_portmapping
-  description: Read TransportPCE's port mapping — its abstraction of each device's ports. node_id narrows it to
+- name: optical_get_portmapping
+  description: Read the controller's port mapping — its abstraction of each device's ports. node_id narrows it to
     one node. Pass raw=true for every logical-connection-point rather than per-node counts.
   schema:
     properties:
@@ -170,19 +170,19 @@ tools:
         default: false
         title: Raw
         type: boolean
-    title: tpce_get_portmappingArguments
+    title: optical_get_portmappingArguments
     type: object
   defaults:
     suffix: ''
   steps:
   - as: pm
     method: GET
-    path: /rests/data/transportpce-portmapping:network{suffix}
+    path: /rests/data/example-portmapping:network{suffix}
     timeout: 60
     empty_if: data-missing
   reply:
     raw: true
-- name: tpce_get_node_status
+- name: optical_get_node_status
   description: Whether a mounted NETCONF device is connected, and what it advertises. Reads the operational datastore
     (content=nonconfig), which is where the connection status lives — the config view only says what was asked for.
   schema:
@@ -196,7 +196,7 @@ tools:
         type: boolean
     required:
     - node_id
-    title: tpce_get_node_statusArguments
+    title: optical_get_node_statusArguments
     type: object
   steps:
   - as: node
@@ -205,15 +205,15 @@ tools:
     timeout: 60
   reply:
     raw: true
-- name: tpce_list_services
-  description: Services TransportPCE currently has provisioned, with their states.
+- name: optical_list_services
+  description: Services the controller currently has provisioned, with their states.
   schema:
     properties:
       raw:
         default: false
         title: Raw
         type: boolean
-    title: tpce_list_servicesArguments
+    title: optical_list_servicesArguments
     type: object
   steps:
   - as: services
@@ -223,7 +223,7 @@ tools:
     empty_if: data-missing
   reply:
     raw: true
-- name: tpce_get_service
+- name: optical_get_service
   description: One provisioned service in full, by name.
   schema:
     properties:
@@ -236,7 +236,7 @@ tools:
         type: boolean
     required:
     - service_name
-    title: tpce_get_serviceArguments
+    title: optical_get_serviceArguments
     type: object
   steps:
   - as: service
@@ -245,7 +245,7 @@ tools:
     timeout: 60
   reply:
     raw: true
-- name: tpce_compute_path
+- name: optical_compute_path
   description: 'Ask the PCE for a path. Advisory: computes, reserves nothing. Each endpoint needs at least service-format
     (Ethernet, OTU, OC, STM, OMS, ODU, OTM, flexo, other) and clli, plus service-rate in Gbps unless the format
     is OMS. node-id is optional here and required to provision. pce_routing_metric: hop-count, propagation-delay,
@@ -276,7 +276,7 @@ tools:
     - service_name
     - service_a_end
     - service_z_end
-    title: tpce_compute_pathArguments
+    title: optical_compute_pathArguments
     type: object
   defaults:
     pce_routing_metric: hop-count
@@ -293,12 +293,12 @@ tools:
       say: 'UNAVAILABLE: a service is not in service yet (being set up or taken down); a path computation now would
         disturb it. Ask again shortly'
     quiet_after:
-    - action: tpce_service_create
+    - action: optical_service_create
       for_s: 30
       until: listed
       named_by: service-name
       say: 'UNAVAILABLE: service {target} is being set up; a path computation now would disturb it. Ask again shortly'
-    - action: tpce_service_delete
+    - action: optical_service_delete
       for_s: 300
       until: gone
       named_by: service-name
@@ -366,11 +366,11 @@ tools:
       find: response-code
       all_equal: '200'
       required: true
-      say: 'UNAVAILABLE: TransportPCE could not be put in feasibility mode, so a path computation is not known to
+      say: 'UNAVAILABLE: the controller could not be put in feasibility mode, so a path computation is not known to
         be harmless'
   - as: path
     method: POST
-    path: /rests/operations/transportpce-pce:path-computation-request
+    path: /rests/operations/example-pce:path-computation-request
     body:
       template:
         input:
@@ -384,12 +384,12 @@ tools:
     timeout: 180
   reply:
     raw: true
-- name: tpce_describe_models
+- name: optical_describe_models
   description: What the YANG models require, so a caller need not guess. Which fields are mandatory, which enums
     are legal, and the two places the documentation and the models disagree.
   schema:
     properties: {}
-    title: tpce_describe_modelsArguments
+    title: optical_describe_modelsArguments
     type: object
   steps: []
   reply:
@@ -439,12 +439,12 @@ tools:
         - service-rate is mandatory only when service-format is not OMS
         - node-id is optional for path computation and required to provision
         sources:
-        - transportpce-pce@2024-02-05.yang
-        - transportpce-common-service-path-types@2022-01-18.yang
+        - example-pce@2024-02-05.yang
+        - example-common-service-path-types@2022-01-18.yang
         - org-openroadm-service-format.yang (OpenROADM MSA)
-- name: tpce_get_tapi_topology_details
+- name: optical_get_tapi_topology_details
   description: 'TAPI''s abstracted view, for callers that speak TAPI rather than OpenROADM. An RPC by protocol but
-    a read by effect. Needs odl-transportpce-tapi installed: without it OpenDaylight answers HTTP 500 with "No implementation
+    a read by effect. Needs odl-example-tapi installed: without it answers HTTP 500 with "No implementation
     of RPC ... available" rather than a 404, so the failure names a missing feature and not a missing controller.'
   schema:
     properties:
@@ -456,7 +456,7 @@ tools:
         default: false
         title: Raw
         type: boolean
-    title: tpce_get_tapi_topology_detailsArguments
+    title: optical_get_tapi_topology_detailsArguments
     type: object
   defaults:
     topology_id: 393f09a4-0a0b-3d82-a4f6-1fbbc14ca1a7
@@ -471,15 +471,15 @@ tools:
     timeout: 180
   reply:
     raw: true
-- name: tpce_list_tapi_connectivity_services
-  description: TAPI connectivity services currently known to TransportPCE.
+- name: optical_list_tapi_connectivity_services
+  description: TAPI connectivity services currently known to the controller.
   schema:
     properties:
       raw:
         default: false
         title: Raw
         type: boolean
-    title: tpce_list_tapi_connectivity_servicesArguments
+    title: optical_list_tapi_connectivity_servicesArguments
     type: object
   steps:
   - as: services
@@ -491,7 +491,7 @@ tools:
     timeout: 180
   reply:
     raw: true
-- name: tpce_service_create
+- name: optical_service_create
   description: Request an OpenROADM service. Queues for operator approval; provisions nothing. Both endpoints need
     service-format, clli, service-rate (unless OMS), node-id, tx-direction and rx-direction — the renderer configures
     real ports, so the directions are not optional here even though the PCE can compute without them. There is no
@@ -518,7 +518,7 @@ tools:
     - service_name
     - service_a_end
     - service_z_end
-    title: tpce_service_createArguments
+    title: optical_service_createArguments
     type: object
   queue: true
   verb: provision
@@ -549,8 +549,8 @@ tools:
       - '200'
       - OK
       - Successful
-      say: TransportPCE refused it
-- name: tpce_service_delete
+      say: the controller refused it
+- name: optical_service_delete
   description: Request deletion of an OpenROADM service. Queues for approval; deletes nothing. Deleting a service
     drops traffic it currently carries, so this is gated more tightly than creating one.
   schema:
@@ -560,7 +560,7 @@ tools:
         type: string
     required:
     - service_name
-    title: tpce_service_deleteArguments
+    title: optical_service_deleteArguments
     type: object
   queue: true
   verb: teardown
@@ -585,9 +585,9 @@ tools:
             tail-retention: 'no'
     timeout: 180
     expect: *id001
-- name: tpce_approve_request
+- name: optical_approve_request
   description: Approve and issue one queued write, for a host that confirmed it with a person. Needs the token the
-    operator configured on this server (TPCE_MCP_APPROVER_TOKEN). With none configured this always refuses and approval
+    operator configured on this server (OPTICAL_APPROVER_TOKEN). With none configured this always refuses and approval
     stays with the runner's --approve / --apply-now.
   schema:
     properties:
@@ -600,12 +600,12 @@ tools:
     required:
     - approval_id
     - approver_token
-    title: tpce_approve_requestArguments
+    title: optical_approve_requestArguments
     type: object
   approve:
-    token_env: TPCE_MCP_APPROVER_TOKEN
-- name: tpce_device_connect
-  description: Request that TransportPCE mount a NETCONF device. Queues for approval. Not traffic-affecting, but
+    token_env: OPTICAL_APPROVER_TOKEN
+- name: optical_device_connect
+  description: Request that the controller mount a NETCONF device. Queues for approval. Not traffic-affecting, but
     it puts a device under a controller's authority — and one device owned by two controllers is exactly the conflict
     `dispatcher.managed_elsewhere` exists to catch. So it is gated too, and the queued item records which device
     and which controller.
@@ -632,7 +632,7 @@ tools:
     required:
     - node_id
     - host
-    title: tpce_device_connectArguments
+    title: optical_device_connectArguments
     type: object
   queue: true
   target: '{node_id}'
@@ -640,7 +640,7 @@ tools:
     port: 830
     username: ''
     password: ''
-  summary: mount {node_id} ({host}:{port}) on TransportPCE
+  summary: mount {node_id} ({host}:{port}) on the controller
   check:
     between:
       port:

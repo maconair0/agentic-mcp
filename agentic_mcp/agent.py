@@ -1,7 +1,7 @@
 """
 Asked in words: the agentic MCP's own small model, and what it is trusted with.
 
-A request such as "which lightpaths does transportpce hold" has to become a
+A request such as "which lightpaths does the optical controller hold" has to become a
 controller, a verb of the contract and its arguments. Most requests say all
 three plainly and are read by rule, with no model at all. The model is asked
 only for the rest, and then only to choose: from the controllers that are
@@ -197,7 +197,7 @@ def ask(desk: Any, text: str, confirm: bool = False, approved_by: str = "") -> D
     out: Dict[str, Any] = {"understood": got, "ok": True}
     if not action:
         out.update(ok=False, answer="I could not tell what that asks of a controller. Name a controller and "
-                                    "what you want of it, for example: list the devices on onos.")
+                                    "what you want of it, for example: list the devices on metro.")
         return out
     if action == "controllers" or (action == "describe" and controller == "all"):
         rows = []

@@ -272,7 +272,7 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
     OWN = {
         "desk_controllers": ("Every controller onboarded here, with its domain and how it fares "
                              "against the contract.", {}),
-        "desk_ask": ("Ask about the controllers in words, e.g. 'list the devices on onos'. A write is "
+        "desk_ask": ("Ask about the controllers in words, e.g. 'list the devices on metro'. A write is "
                      "answered with a dry run unless confirm is true and approved_by names a person.",
                      {"text": {"type": "string"}, "confirm": {"type": "boolean"},
                       "approved_by": {"type": "string"}}),

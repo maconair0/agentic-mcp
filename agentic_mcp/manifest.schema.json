@@ -13,10 +13,9 @@
  "properties": {
   "manifest": {
    "enum": [
-    "agentic-mcp.controller/v1",
-    "edgelm.controller/v1"
+    "agentic-mcp.controller/v1"
    ],
-   "description": "The format. edgelm.controller/v1 is its earlier name and is read the same"
+   "description": "The format of this document"
   },
   "kind": {
    "type": "string",

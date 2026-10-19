@@ -1,7 +1,7 @@
 """
   python -m agentic_mcp onboard <key> --url URL [--kind K] [--user-env V --password-env V] [--spec S]
   python -m agentic_mcp serve [--port 8400]          run the agentic MCP as its own service
-  python -m agentic_mcp ask "list the devices on onos"
+  python -m agentic_mcp ask "list the devices on metro"
   python -m agentic_mcp install <manifest file>...   put controller manifests in the corpus
   python -m agentic_mcp learn <kind> <user guide>    draft a manifest from a guide or API document
   python -m agentic_mcp kinds                        the kinds there is a manifest for

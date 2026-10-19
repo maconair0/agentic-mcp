@@ -12,8 +12,8 @@ writing code.
                 ┌──────┴───────┐    its own small model, for requests in words
                 │ agentic MCP  │    its own manifests, approval queue, audit log
                 └─┬───┬───┬──┬─┘
-          REST    │   │   │  │      one session each; no controller reaches another
-        TeraFlowSDN ONOS Ryu TransportPCE  ... yours
+     REST/RESTCONF│   │   │  │      one session each; no controller reaches another
+       controller A   B   C  …      each described by its own manifest
 ```
 
 ## How it works
@@ -101,8 +101,8 @@ cp controllers.env.example controllers.env     # the controllers' credentials: n
 chmod 600 controllers.env                      # only this file ever holds them
 
 export AGENTIC_MCP_DATA=/var/lib/agentic-mcp   # manifests, onboarded controllers, queue, audit log
-python -m agentic_mcp install manifests/*.yaml # the kinds you will onboard (or your own manifests)
-python -m agentic_mcp onboard core --url http://10.0.0.5:8181/onos/v1 \
+python -m agentic_mcp install mykind.yaml      # the kinds you will onboard (your manifests)
+python -m agentic_mcp onboard core --url http://10.0.0.5:8181/api/v1 \
        --user-env CORE_USER --password-env CORE_PASSWORD
 python -m agentic_mcp show core                # what it serves, verified, and what it lacks
 ```
@@ -164,7 +164,7 @@ If the controller publishes an OpenAPI or Swagger document, or speaks RESTCONF,
 onboarding needs only its address:
 
 ```bash
-python -m agentic_mcp onboard north --url http://10.0.0.5:8181/onos/v1 \
+python -m agentic_mcp onboard north --url http://10.0.0.5:8181/api/v1 \
        --user-env NORTH_USER --password-env NORTH_PASSWORD
 ```
 
@@ -209,10 +209,10 @@ python -m agentic_mcp onboard north --url http://10.0.0.5:8080/api
 ```
 
 The format is described in [MANIFEST_FORMAT.md](MANIFEST_FORMAT.md) and, for a
-program, in `agentic_mcp/manifest.schema.json`. `manifests/` holds the
-manifests of four real controllers (TeraFlowSDN, ONOS, Ryu, TransportPCE), to
-use (`python -m agentic_mcp install manifests/*.yaml`) or to read as examples.
-None of the four has any code here.
+program, in `agentic_mcp/manifest.schema.json`. `manifests/example/` holds a
+small complete manifest (`metro.yaml`, for the example controller in
+`run_example_controller.py`) and a template to start from. No kind of controller
+has any code here: everything a kind needs is in its manifest.
 
 ## Adding a verb
 
@@ -292,8 +292,8 @@ AGENTIC_MCP_DATA=/var/lib/agentic-mcp/site-b  AGENTIC_MCP_ENV_FILE=/etc/agentic-
 - **Agents use each instance as its own service.** An orchestrator that spans
   several keeps one `RemoteDesk` (or one MCP connection) per instance. Where
   each instance belongs to an agent of its own domain, those agents talk to
-  each other rather than to each other's instances. In the edgeLM project they
-  do this over A2A, each agent with its own instance.
+  each other rather than to each other's instances, for example over A2A,
+  each agent with its own instance.
 - **Per instance, the load is bounded:**
   - `AGENTIC_MCP_PER_CONTROLLER` (requests in flight to one controller, 24)
     keeps a slow controller from taking the others down;
@@ -321,7 +321,7 @@ write tool takes `approved_by`. This needs the `mcp` package, version 1.x.
 | `POST /controllers/<key>/read`, `dry-run`, `write`, `confirm` | by verb (`verb`, `arguments`, `body`, `approved_by`) |
 | `GET /sessions`, `GET /sessions/<key>` | every controller's session: up, degraded or down, since when, requests, errors, answer times |
 | `GET /queue` | writes waiting for a person's approval |
-| `POST /ask` | a request in words: `{"text": "list the devices on onos"}` |
+| `POST /ask` | a request in words: `{"text": "list the devices on metro"}` |
 
 **From Python:**
 
@@ -403,7 +403,7 @@ is the only place a verb is defined (see [Adding a verb](#adding-a-verb)), and
 | `AGENTIC_MCP_MODEL` | the model for requests in words |
 | `AGENTIC_MCP_MODEL_URL` | the Ollama that serves it; another machine works |
 | `AGENTIC_MCP_MODEL_GPU=0` | keep the model on the CPU |
-| `AGENTIC_MCP_TIMEOUT` | seconds to wait for a controller (20) |
+| `AGENTIC_MCP_TIMEOUT` | seconds to wait for a controller (10) |
 | `AGENTIC_MCP_CONNECTIONS` | connections kept to each controller (32) |
 | `AGENTIC_MCP_PER_CONTROLLER` | requests that may be on their way to one controller at once (24) |
 | `AGENTIC_MCP_THREADS` | requests served at once in all (enough for every controller's share, at least 64) |
@@ -447,6 +447,6 @@ agentic_mcp/
   agent.py               requests in words
   service.py             HTTP and MCP
   client.py              the service, from another Python process
-manifests/               four real controllers, an example, a template
+manifests/example/       an example manifest and a template
 tests/
 ```

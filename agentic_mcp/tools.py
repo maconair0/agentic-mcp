@@ -501,8 +501,8 @@ def _reply_json(recipe, args, url, status, kind, text) -> Tuple[str, bool]:
     return json.dumps({"ok": False, "status": status, "error": (text or "no answer")[:500]}, indent=1), True
 
 
-def _reply_tfs(recipe, args, url, status, kind, text) -> Tuple[str, bool]:
-    """As TeraFlowSDN's tools have always answered: a failure is JSON too."""
+def _reply_envelope(recipe, args, url, status, kind, text) -> Tuple[str, bool]:
+    """Every answer is a JSON object, a failure too (with the URL and the status)."""
     if not status:
         data: Any = {"error": text, "status": "error", "url": url}
     elif status >= 400:
@@ -516,21 +516,21 @@ def _reply_tfs(recipe, args, url, status, kind, text) -> Tuple[str, bool]:
     return json.dumps(data, indent=2, default=str), False
 
 
-def _reply_onos(recipe, args, url, status, kind, text) -> Tuple[str, bool]:
-    """As ONOS's tools have always answered: Python's own print of the answer,
-    and a sentence beginning "Error" when the controller refused."""
+def _reply_repr(recipe, args, url, status, kind, text) -> Tuple[str, bool]:
+    """The answer as a plain printed value, and a sentence beginning "Error"
+    when the controller refused."""
     if 200 <= status < 300:
         data = _loads(text)
         result = data if data is not None else {}
         if recipe.get("reply") == "text":
             return recipe.get("ok_text", "{result}").format(result=result, **args), False
         return str(result), False
-    error = (f"ONOS API error: {status} - {text}" if status
-             else f"Error connecting to ONOS: {text}")
+    error = (f"API error: {status} - {text}" if status
+             else f"Error connecting to the controller: {text}")
     return recipe.get("error_text", "Error: {error}").format(error=error, **args), False
 
 
-REPLIES = {"json": _reply_json, "tfs": _reply_tfs, "onos": _reply_onos}
+REPLIES = {"json": _reply_json, "envelope": _reply_envelope, "repr": _reply_repr}
 
 
 # ----- verbs, for a controller with no family -----

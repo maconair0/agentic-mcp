@@ -7,7 +7,6 @@ YAML or JSON.
 
 - Start from [manifests/example/template.yaml](manifests/example/template.yaml).
 - A small complete one: [manifests/example/metro.yaml](manifests/example/metro.yaml).
-- Four real ones: [manifests/](manifests/) (TeraFlowSDN, ONOS, Ryu, TransportPCE).
 - The same rules for a program: [agentic_mcp/manifest.schema.json](agentic_mcp/manifest.schema.json) (JSON Schema, draft 7).
 
 ## Using one
@@ -33,7 +32,7 @@ Only `manifest`, `kind` and `recognise` are required.
 | Section | What it holds |
 |---|---|
 | `manifest` | `agentic-mcp.controller/v1` |
-| `kind` | a short lower-case name for this kind of controller (`onos`, `mykind`) |
+| `kind` | a short lower-case name for this kind of controller (`metro`, `mykind`) |
 | `title`, `version`, `about` | for people. `version: draft` marks a manifest drafted from a user guide |
 | `domain` | `optical`, `packet` or `multi-layer`; left out, it is worked out from the words in the API |
 | `recognise` | how a controller of this kind is told from any other: `fingerprint` (an address only it answers, with JSON) or `operation_contains` (a path only its API has) |
@@ -153,7 +152,3 @@ After onboarding, each verb has one of these states:
 | missing | the controller has nothing for this verb |
 | not applicable | the verb does not exist in this controller's domain |
 
-## Compatibility
-
-`edgelm.controller/v1` is the earlier name of this format. A manifest that says
-it is read exactly the same.

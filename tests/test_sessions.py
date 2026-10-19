@@ -24,53 +24,53 @@ class TrackerTests(unittest.TestCase):
 
     def test_a_controller_that_answers_is_up_and_its_answers_are_timed(self):
         for ms in (5, 7, 9):
-            self.t.record("onos", 200, ms)
-        got = self.t.view("onos")[0]
+            self.t.record("core", 200, ms)
+        got = self.t.view("core")[0]
         self.assertEqual((got["state"], got["requests"], got["errors"], got["breaker"]), ("up", 3, 0, "closed"))
         self.assertEqual(got["answers_ms"]["median"], 7)
 
     def test_one_that_answers_with_errors_is_degraded_not_down(self):
-        self.t.record("tfs", 500, 12, "HTTP 500: boom")
-        got = self.t.view("tfs")[0]
+        self.t.record("access", 500, 12, "HTTP 500: boom")
+        got = self.t.view("access")[0]
         self.assertEqual((got["state"], got["errors"], got["last_error"]), ("degraded", 1, "HTTP 500: boom"))
-        self.assertEqual(self.t.allow("tfs"), "")                 # it is there: it is still asked
+        self.assertEqual(self.t.allow("access"), "")                 # it is there: it is still asked
 
     def test_one_that_does_not_answer_is_not_asked_again_for_a_while(self):
         for _ in range(sessions.OPEN_AFTER - 1):
-            self.t.record("ryu", 0, 100, "ConnectionError: refused")
-            self.assertEqual(self.t.allow("ryu"), "")             # one slow answer, or three, is not down
-        self.t.record("ryu", 0, 100, "ConnectionError: refused")
-        self.assertEqual(self.t.view("ryu")[0]["state"], "down")
-        self.assertIn("did not answer 4 times in a row", self.t.allow("ryu"))
-        self.assertEqual(self.t.view("ryu")[0]["breaker"], "open")
+            self.t.record("edge", 0, 100, "ConnectionError: refused")
+            self.assertEqual(self.t.allow("edge"), "")             # one slow answer, or three, is not down
+        self.t.record("edge", 0, 100, "ConnectionError: refused")
+        self.assertEqual(self.t.view("edge")[0]["state"], "down")
+        self.assertIn("did not answer 4 times in a row", self.t.allow("edge"))
+        self.assertEqual(self.t.view("edge")[0]["breaker"], "open")
 
     def test_two_timeouts_in_a_row_open_the_breaker_where_refusals_need_four(self):
         # A timeout costs a whole timeout: one tool call making several requests
         # in turn held its first caller for each of them.
-        self.t.record("tfs", 0, 3000, "ReadTimeout: slow")
-        self.assertEqual(self.t.allow("tfs"), "")
-        self.t.record("tfs", 0, 3000, "ConnectTimeout: no route")
-        self.assertIn("did not answer", self.t.allow("tfs"))
-        self.assertEqual(self.t.view("tfs")[0]["state"], "down")
+        self.t.record("access", 0, 3000, "ReadTimeout: slow")
+        self.assertEqual(self.t.allow("access"), "")
+        self.t.record("access", 0, 3000, "ConnectTimeout: no route")
+        self.assertIn("did not answer", self.t.allow("access"))
+        self.assertEqual(self.t.view("access")[0]["state"], "down")
         for _ in range(sessions.OPEN_AFTER - 1):
-            self.t.record("ryu", 0, 5, "ConnectionError: refused")
-            self.assertEqual(self.t.allow("ryu"), "")
-        self.t.record("ryu", 0, 5, "ConnectionError: refused")
-        self.assertIn("did not answer", self.t.allow("ryu"))
+            self.t.record("edge", 0, 5, "ConnectionError: refused")
+            self.assertEqual(self.t.allow("edge"), "")
+        self.t.record("edge", 0, 5, "ConnectionError: refused")
+        self.assertIn("did not answer", self.t.allow("edge"))
 
     def test_an_answer_between_timeouts_starts_the_count_again(self):
-        self.t.record("tfs", 0, 3000, "ReadTimeout: slow")
-        self.t.record("tfs", 200, 40)
-        self.t.record("tfs", 0, 3000, "ReadTimeout: slow")
-        self.assertEqual(self.t.allow("tfs"), "")
+        self.t.record("access", 0, 3000, "ReadTimeout: slow")
+        self.t.record("access", 200, 40)
+        self.t.record("access", 0, 3000, "ReadTimeout: slow")
+        self.assertEqual(self.t.allow("access"), "")
 
     def test_after_the_pause_one_request_is_let_through_and_its_answer_decides(self):
         for _ in range(sessions.OPEN_AFTER):
-            self.t.record("ryu", 0, 100, "ConnectionError")
-        self.t._s["ryu"]["open_until"] = 0.0                      # the pause has passed
-        self.assertEqual(self.t.allow("ryu"), "")
-        self.t.record("ryu", 200, 4)
-        got = self.t.view("ryu")[0]
+            self.t.record("edge", 0, 100, "ConnectionError")
+        self.t._s["edge"]["open_until"] = 0.0                      # the pause has passed
+        self.assertEqual(self.t.allow("edge"), "")
+        self.t.record("edge", 200, 4)
+        got = self.t.view("edge")[0]
         self.assertEqual((got["state"], got["failures_in_a_row"], got["breaker"]), ("up", 0, "closed"))
         self.assertEqual([h["to"] for h in got["history"]], ["down", "up"])
         self.assertEqual(got["history"][-1]["why"], "answers again")
@@ -78,38 +78,38 @@ class TrackerTests(unittest.TestCase):
     def test_after_the_pause_only_one_request_goes_while_it_is_on_its_way(self):
         # Letting every waiting caller through at once held each of them for a whole timeout.
         for _ in range(sessions.OPEN_AFTER):
-            self.t.record("ryu", 0, 100, "ConnectTimeout")
-        self.t._s["ryu"]["open_until"] = 0.0
-        self.assertEqual(self.t.allow("ryu"), "")                 # the probe
-        self.assertIn("did not answer", self.t.allow("ryu"))       # the others are told at once
-        self.assertIn("did not answer", self.t.allow("ryu"))
-        self.t.record("ryu", 0, 3000, "ConnectTimeout")            # the probe failed: paused again
-        self.assertIn("did not answer", self.t.allow("ryu"))
-        self.assertGreater(self.t._s["ryu"]["pause_s"], sessions.PAUSE_S)
+            self.t.record("edge", 0, 100, "ConnectTimeout")
+        self.t._s["edge"]["open_until"] = 0.0
+        self.assertEqual(self.t.allow("edge"), "")                 # the probe
+        self.assertIn("did not answer", self.t.allow("edge"))       # the others are told at once
+        self.assertIn("did not answer", self.t.allow("edge"))
+        self.t.record("edge", 0, 3000, "ConnectTimeout")            # the probe failed: paused again
+        self.assertIn("did not answer", self.t.allow("edge"))
+        self.assertGreater(self.t._s["edge"]["pause_s"], sessions.PAUSE_S)
 
     def test_each_pause_is_longer_than_the_last_up_to_five_minutes(self):
         for _ in range(sessions.OPEN_AFTER):
-            self.t.record("ryu", 0, 1, "x")
-        first = self.t._s["ryu"]["pause_s"]
-        self.t.record("ryu", 0, 1, "x")
-        self.assertEqual(self.t._s["ryu"]["pause_s"], min(sessions.PAUSE_MAX_S, first * 2))
+            self.t.record("edge", 0, 1, "x")
+        first = self.t._s["edge"]["pause_s"]
+        self.t.record("edge", 0, 1, "x")
+        self.assertEqual(self.t._s["edge"]["pause_s"], min(sessions.PAUSE_MAX_S, first * 2))
 
     def test_what_is_known_is_there_after_a_restart_and_the_breaker_is_not(self):
-        self.t.record("onos", 200, 5)
+        self.t.record("core", 200, 5)
         for _ in range(sessions.OPEN_AFTER):
-            self.t.record("ryu", 0, 1, "ConnectionError")
+            self.t.record("edge", 0, 1, "ConnectionError")
         self.t._save()
         again = sessions.Tracker(self.t.path)
         got = {r["controller"]: r for r in again.view()}
-        self.assertEqual((got["onos"]["state"], got["onos"]["requests"]), ("up", 1))
-        self.assertEqual((got["ryu"]["state"], got["ryu"]["breaker"]), ("down", "closed"))   # it finds out for itself
-        self.assertEqual(again.allow("ryu"), "")
+        self.assertEqual((got["core"]["state"], got["core"]["requests"]), ("up", 1))
+        self.assertEqual((got["edge"]["state"], got["edge"]["breaker"]), ("down", "closed"))   # it finds out for itself
+        self.assertEqual(again.allow("edge"), "")
 
     def test_a_command_run_once_records_and_never_holds_back(self):
         with mock.patch.object(sessions, "BREAKER", False):
             for _ in range(sessions.OPEN_AFTER + 2):
-                self.t.record("ryu", 0, 1, "x")
-            self.assertEqual(self.t.allow("ryu"), "")
+                self.t.record("edge", 0, 1, "x")
+            self.assertEqual(self.t.allow("edge"), "")
 
 
 class RequestTests(unittest.TestCase):
@@ -212,16 +212,16 @@ class QueueFileTests(unittest.TestCase):
     def test_a_file_that_cannot_be_read_falls_back_to_the_last_good_one(self):
         path = os.path.join(tempfile.mkdtemp(), "queue.json")
         q = Queue(path)
-        first = q.request("ryu", "ryu_map_vlan", "map", [{"method": "POST", "url": "u"}])
-        q.request("ryu", "ryu_map_vlan", "map again", [{"method": "POST", "url": "u"}])
+        first = q.request("edge", "edge_map_vlan", "map", [{"method": "POST", "url": "u"}])
+        q.request("edge", "edge_map_vlan", "map again", [{"method": "POST", "url": "u"}])
         with open(path, "w") as fh:
             fh.write('{"half a fi')                                       # a crash mid-write, a full disk
         again = Queue(path)
-        self.assertIn(first["approval_id"], [i["id"] for i in again.pending("ryu")])   # one save back, not nothing
+        self.assertIn(first["approval_id"], [i["id"] for i in again.pending("edge")])   # one save back, not nothing
         self.assertTrue(os.path.exists(path + ".unreadable"))             # and the damaged one is kept to look at
 
     def test_no_file_at_all_is_an_empty_queue(self):
-        self.assertEqual(Queue(os.path.join(tempfile.mkdtemp(), "queue.json")).pending("ryu"), [])
+        self.assertEqual(Queue(os.path.join(tempfile.mkdtemp(), "queue.json")).pending("edge"), [])
 
 
 class ServiceTests(unittest.TestCase):

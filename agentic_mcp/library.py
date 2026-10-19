@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 FORMAT = "agentic-mcp.controller/v1"
 # The name the form had while this lived inside one system. A manifest written
 # under it is read as it always was.
-FORMATS = (FORMAT, "edgelm.controller/v1")
+FORMATS = (FORMAT,)
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXTENSIONS = (".yaml", ".yml", ".json")
 _BLOCK = re.compile(r"```(?:yaml|json|controller-manifest)\s*\n(.*?)\n```", re.S)
@@ -122,7 +122,7 @@ def validate(doc: Any) -> List[str]:
     if doc.get("manifest") not in FORMATS:
         problems.append(f"manifest: has to be {FORMAT}")
     if not re.fullmatch(r"[a-z][a-z0-9_]*", str(doc.get("kind") or "")):
-        problems.append("kind: a short lower-case name for this kind of controller, e.g. onos")
+        problems.append("kind: a short lower-case name for this kind of controller, e.g. metro")
     if doc.get("domain") not in (None, "optical", "packet", "multi-layer"):
         problems.append("domain: optical, packet or multi-layer (or leave it out to have it worked out)")
     for key in doc:

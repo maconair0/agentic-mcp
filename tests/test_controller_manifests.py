@@ -21,22 +21,22 @@ from agentic_mcp.tools import _fill, pick, view_rows
 from tests import example_controller
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHIPPED = os.path.join(ROOT, "manifests")
-EXAMPLE = os.path.join(SHIPPED, "example", "metro.yaml")
+SHIPPED = os.path.join(ROOT, "tests", "fixtures")
+EXAMPLE = os.path.join(ROOT, "manifests", "example", "metro.yaml")
 
 
 class FormatTests(unittest.TestCase):
     def test_every_shipped_manifest_is_well_formed(self):
         files = glob.glob(os.path.join(SHIPPED, "*.yaml")) + [EXAMPLE]
-        self.assertEqual(len(files), 5)
+        self.assertEqual(len(files), 3)          # the two fixtures and the example
         for path in files:
             self.assertEqual(library.validate(library.read(path)), [], path)
 
     def test_it_is_read_from_yaml_json_and_a_page_with_a_fenced_block(self):
         doc = {"manifest": library.FORMAT, "kind": "k", "recognise": {"fingerprint": "/x"}}
         self.assertEqual(library.parse(json.dumps(doc))["kind"], "k")
-        self.assertEqual(library.parse("manifest: edgelm.controller/v1\nkind: k\n")["kind"], "k")
-        page = "# K\n\nSome words.\n\n```yaml\nmanifest: edgelm.controller/v1\nkind: k\n```\n"
+        self.assertEqual(library.parse(f"manifest: {library.FORMAT}\nkind: k\n")["kind"], "k")
+        page = f"# K\n\nSome words.\n\n```yaml\nmanifest: {library.FORMAT}\nkind: k\n```\n"
         self.assertEqual(library.parse(page)["kind"], "k")
 
     def test_a_document_that_is_not_a_manifest_is_left_alone(self):
@@ -52,7 +52,7 @@ class FormatTests(unittest.TestCase):
             self.assertIn(needle, text)
 
     def test_the_guide_says_in_words_what_the_manifest_says_in_data(self):
-        text = library.guide(library.read(os.path.join(SHIPPED, "transportpce.yaml")))
+        text = library.guide(library.read(os.path.join(SHIPPED, "optical.yaml")))
         self.assertIn("To provision", text)
         self.assertIn("At most 4 per hour", text)
         self.assertIn("service-feasibility-check", text)
@@ -74,7 +74,7 @@ class CorpusTests(unittest.TestCase):
     def test_a_malformed_one_is_not_installed(self):
         bad = os.path.join(self.dir.name, "bad.yaml")
         with open(bad, "w") as fh:
-            fh.write("manifest: edgelm.controller/v1\nkind: x\n")
+            fh.write("manifest: agentic-mcp.controller/v1\nkind: x\n")
         target = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, target, True)
         got = library.install(bad, target)
@@ -218,7 +218,7 @@ class ManifestDrivenControllerTests(unittest.TestCase):
 
 
 class StepsTests(unittest.TestCase):
-    """A verb that is more than one request, as Ryu's VLAN mapping is."""
+    """A verb that is more than one request, as a switch controller's VLAN mapping is."""
 
     def setUp(self):
         self.sent = []
@@ -236,8 +236,8 @@ class StepsTests(unittest.TestCase):
         self.addCleanup(self.dir.cleanup)
         from agentic_mcp import discover
         from agentic_mcp.session import Session
-        m = {"key": "ryu", "label": "Ryu", "base_url": "http://r:1", "family": "ryu", "defaults": {}, "verbs": {}}
-        manifest.declare(m, next(f for f in discover.families() if f["family"] == "ryu"), [])
+        m = {"key": "switch", "label": "Switch", "base_url": "http://r:1", "family": "switch", "defaults": {}, "verbs": {}}
+        manifest.declare(m, next(f for f in discover.families() if f["family"] == "switch"), [])
         self.entry = m["verbs"]["provision"]
         self.session = Session(m, env={}, http=Http(), audit=os.path.join(self.dir.name, "audit.jsonl"))
         self.args = dict(dpid="14549250", client_port="1", uplink_port="3", vlan_id="102")
@@ -367,7 +367,7 @@ class StandardFormTests(unittest.TestCase):
     def setUp(self):
         with open(os.path.join(os.path.dirname(library.__file__), "manifest.schema.json")) as fh:
             self.schema = json.load(fh)
-        self.files = sorted(glob.glob(os.path.join(SHIPPED, "*.yaml")) + glob.glob(os.path.join(SHIPPED, "example", "*.yaml")))
+        self.files = sorted(glob.glob(os.path.join(SHIPPED, "*.yaml")) + glob.glob(os.path.join(os.path.dirname(EXAMPLE), "*.yaml")))
 
     def test_the_schema_names_the_contracts_verbs_and_the_sections_a_manifest_has(self):
         from agentic_mcp.verbs import VERBS
@@ -379,7 +379,7 @@ class StandardFormTests(unittest.TestCase):
 
     def test_every_manifest_here_and_the_template_fit_the_schema_and_the_checker(self):
         import jsonschema
-        self.assertGreaterEqual(len(self.files), 6)
+        self.assertGreaterEqual(len(self.files), 4)   # two fixtures, the example and the template
         for path in self.files:
             doc = library.read(path)
             self.assertIsNotNone(doc, path)
