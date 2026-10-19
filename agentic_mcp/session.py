@@ -23,7 +23,13 @@ import requests
 
 AUDIT = os.path.join(os.getenv("AGENTIC_MCP_DATA") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"),
                      "audit.jsonl")
-TIMEOUT = float(os.getenv("AGENTIC_MCP_TIMEOUT") or os.getenv("CONNECTOR_TIMEOUT") or "20")
+# How long a controller may take to answer one request. Ten seconds is twice the
+# slowest call measured against the lab's four controllers (a TeraFlowSDN write,
+# 4.8 s; its reads never passed 1.2 s) and above TeraFlowSDN's own 95th
+# percentile (6.7 s). It was 20: a controller that hangs holds its first caller
+# for the whole of it. A controller whose reads are slower than this sets
+# AGENTIC_MCP_TIMEOUT higher.
+TIMEOUT = float(os.getenv("AGENTIC_MCP_TIMEOUT") or os.getenv("CONNECTOR_TIMEOUT") or "10")
 # Connecting is given far less than answering: a controller on this network
 # accepts a connection in milliseconds, so one that has not in a few seconds is
 # not there (its host is off, or the packets are dropped). With one timeout for

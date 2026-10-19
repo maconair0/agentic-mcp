@@ -403,7 +403,7 @@ is the only place a verb is defined (see [Adding a verb](#adding-a-verb)), and
 | `AGENTIC_MCP_MODEL` | the model for requests in words |
 | `AGENTIC_MCP_MODEL_URL` | the Ollama that serves it; another machine works |
 | `AGENTIC_MCP_MODEL_GPU=0` | keep the model on the CPU |
-| `AGENTIC_MCP_TIMEOUT` | seconds to wait for a controller (20) |
+| `AGENTIC_MCP_TIMEOUT` | seconds to wait for a controller (10) |
 | `AGENTIC_MCP_CONNECTIONS` | connections kept to each controller (32) |
 | `AGENTIC_MCP_PER_CONTROLLER` | requests that may be on their way to one controller at once (24) |
 | `AGENTIC_MCP_THREADS` | requests served at once in all (enough for every controller's share, at least 64) |

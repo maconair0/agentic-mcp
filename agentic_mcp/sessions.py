@@ -42,7 +42,7 @@ TIMEOUTS = ("ReadTimeout", "ConnectTimeout", "Timeout")
 # not given the whole timeout: a controller that is back answers in well under this.
 PROBE_TIMEOUT_S = float(os.getenv("AGENTIC_MCP_PROBE_TIMEOUT_S", "5"))
 # How long the one request let through after a pause may take before another is.
-PROBE_S = float(os.getenv("AGENTIC_MCP_TIMEOUT") or os.getenv("CONNECTOR_TIMEOUT") or "20") + 5
+PROBE_S = PROBE_TIMEOUT_S + 5
 UP, DEGRADED, DOWN, UNKNOWN = "up", "degraded", "down", "not asked yet"
 # The breaker holds requests back only in the service, which lives for days and
 # is asked by many. A command run once, or a test, records and never holds back.
