@@ -1,4 +1,4 @@
-# Agentic MCP
+<p align="center"><img src="docs/logo.jpg" alt="Agentic MCP — one contract, every controller" width="517"></p>
 
 > **Branch `ofc2026`.** The agentic MCP exactly as used for the OFC 2026 work: it ships the manifests of the
 > four lab controllers (TeraFlowSDN, ONOS, Ryu, TransportPCE) and their reply styles. The controller-neutral
