@@ -1,4 +1,4 @@
-# Agentic MCP
+<p align="center"><img src="docs/logo.jpg" alt="Agentic MCP — one contract, every controller" width="517"></p>
 
 One service that every SDN controller is onboarded to, and that an agent talks
 to in order to reach them. It replaces a hand-written MCP server per
