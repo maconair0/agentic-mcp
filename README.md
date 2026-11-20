@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/logo.jpg" alt="Agentic MCP: one contract, every controller" width="460"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.png"><img src="docs/logo.png" alt="Agentic MCP: one contract, every controller" width="560"></picture></p>
 
 **One service every SDN controller is onboarded to, and that an agent talks to in order to reach them.** It
 replaces a hand-written MCP server per controller: you add a controller by giving it a document about the

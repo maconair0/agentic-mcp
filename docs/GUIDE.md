@@ -2,7 +2,7 @@
 
 Everything in detail: how it works, every setting and page, the measurements behind the claims. The short version is the [README](../README.md).
 
-<p align="center"><img src="logo.jpg" alt="Agentic MCP — one contract, every controller" width="517"></p>
+<p align="center"><img src="logo.png" alt="Agentic MCP — one contract, every controller" width="517"></p>
 
 One service that every SDN controller is onboarded to, and that an agent talks
 to in order to reach them. It replaces a hand-written MCP server per
