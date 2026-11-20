@@ -30,11 +30,95 @@ def load_contract(path: str = CONTRACT_FILE) -> Dict[str, Any]:
 
 
 CONTRACT = load_contract()
+
+
+def _verbs_of(contract: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    return {verb: {**rule, "domain": dom["name"], "writes": bool(rule.get("writes")),
+                   "methods": tuple(rule["methods"])}
+            for dom in contract["domains"] for verb, rule in dom["verbs"].items()}
+
+
 # verb: what it is for, the methods it may use, name fragments for and against.
-VERBS: Dict[str, Dict[str, Any]] = {
-    verb: {**rule, "domain": dom["name"], "writes": bool(rule.get("writes")),
-           "methods": tuple(rule["methods"])}
-    for dom in CONTRACT["domains"] for verb, rule in dom["verbs"].items()}
+VERBS: Dict[str, Dict[str, Any]] = _verbs_of(CONTRACT)
+
+_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+
+
+def contract_problems(data: Any) -> List[str]:
+    """What is wrong with a contract, as sentences; empty when it can replace the one in use."""
+    if not isinstance(data, dict):
+        return ["the contract is a JSON object with about, version, accept and domains"]
+    p: List[str] = []
+    if not isinstance(data.get("version"), (int, str)) or data.get("version") in ("", None):
+        p.append("version: a number or a string, raised when the contract changes")
+    doms = data.get("domains")
+    if not isinstance(doms, list) or not doms:
+        return p + ["domains: a non-empty list"]
+    seen_dom, seen_verb = set(), {}
+    for i, d in enumerate(doms):
+        where = f"domains[{i}]"
+        if not isinstance(d, dict) or not str(d.get("name") or "").strip():
+            p.append(f"{where}: an object with a name")
+            continue
+        where = f"domain {d['name']!r}"
+        if d["name"] in seen_dom:
+            p.append(f"{where}: named twice")
+        seen_dom.add(d["name"])
+        if not isinstance(d.get("required"), bool):
+            p.append(f"{where}: required is true or false")
+        verbs = d.get("verbs")
+        if not isinstance(verbs, dict) or not verbs:
+            p.append(f"{where}: verbs is a non-empty object, verb name -> rule")
+            continue
+        for verb, rule in verbs.items():
+            if verb in seen_verb:
+                p.append(f"verb {verb!r}: in both {seen_verb[verb]!r} and {d['name']!r}")
+            seen_verb[verb] = d["name"]
+            if not isinstance(rule, dict):
+                p.append(f"verb {verb!r}: a rule object")
+                continue
+            m = rule.get("methods")
+            if not isinstance(m, list) or not m or not set(map(str, m)) <= _METHODS:
+                p.append(f"verb {verb!r}: methods is a non-empty list of {sorted(_METHODS)}")
+            if "for" in rule and not isinstance(rule["for"], dict):
+                p.append(f"verb {verb!r}: for is an object, path fragment -> weight")
+            if "against" in rule and not isinstance(rule["against"], list):
+                p.append(f"verb {verb!r}: against is a list of path fragments")
+            if "words" in rule:
+                import re
+                try:
+                    re.compile(str(rule["words"]))
+                except re.error as e:
+                    p.append(f"verb {verb!r}: words is not a regular expression ({e})")
+    removed = sorted(set(VERBS) - set(seen_verb))
+    if removed:
+        # Allowed, but said: a manifest mapping a removed verb keeps it, unused.
+        pass
+    return p
+
+
+def replace_contract(data: Dict[str, Any], path: str = CONTRACT_FILE) -> Dict[str, Any]:
+    """Make `data` the contract: checked, the old file kept beside it, written whole, and the contract in use
+    (CONTRACT, VERBS) updated in place, so every module that imported them sees the new one at once."""
+    problems = contract_problems(data)
+    if problems:
+        raise ValueError("; ".join(problems))
+    import shutil
+    import time
+    backup = f"{path}.{time.strftime('%Y%m%d-%H%M%S')}.bak"
+    if os.path.exists(path):
+        shutil.copy2(path, backup)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh, indent=1)
+    os.replace(tmp, path)
+    before = set(VERBS)
+    CONTRACT.clear()
+    CONTRACT.update(data)
+    VERBS.clear()
+    VERBS.update(_verbs_of(data))
+    return {"version": data.get("version"), "domains": len(data["domains"]), "verbs": len(VERBS),
+            "added": sorted(set(VERBS) - before), "removed": sorted(before - set(VERBS)), "backup": backup}
 
 DOMAIN_WORDS: Dict[str, Tuple[str, ...]] = {
     "optical": ("openroadm", "roadm", "optical", "spectrum", "wavelength", "transponder",

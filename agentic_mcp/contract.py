@@ -35,11 +35,13 @@ def _provides(manifest: Dict[str, Any]) -> Dict[str, str]:
     return dict(family.get("provides") or {})
 
 
-def check(manifest: Dict[str, Any]) -> Dict[str, Any]:
+def check(manifest: Dict[str, Any], spec: Dict[str, Any] = None) -> Dict[str, Any]:
+    """`spec`: a contract to check against instead of the one in use (to preview a change)."""
+    spec = spec or CONTRACT
     provided = _provides(manifest)
     verbs = manifest.get("verbs") or {}
     domains: List[Dict[str, Any]] = []
-    for dom in CONTRACT["domains"]:
+    for dom in spec["domains"]:
         features: Dict[str, str] = {}
         for verb in dom["verbs"]:
             status = (verbs.get(verb) or {}).get("status", "missing")
@@ -67,7 +69,7 @@ def check(manifest: Dict[str, Any]) -> Dict[str, Any]:
         verdict = "accepted, with gaps"
     else:
         verdict = "accepted"
-    return {"verdict": verdict, "contract_version": CONTRACT["version"], "lacking": lacking,
+    return {"verdict": verdict, "contract_version": spec["version"], "lacking": lacking,
             "gaps": gaps, "unproven": unproven, "domains": domains,
             # Without provisioning a controller can be watched and not built on.
             "can_provision": not lacking and any(

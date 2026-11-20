@@ -180,6 +180,41 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
             raise HTTPException(404, f"no manifest for a controller of kind {kind}")
         return text
 
+    # ----- the contract every controller is checked against -----
+
+    def verdicts(spec=None):
+        out = []
+        for key in desk.keys():
+            try:
+                r = contract.check(desk.seat(key).manifest, spec)
+                out.append({"key": key, "verdict": r["verdict"], "gaps": r["gaps"], "lacking": r["lacking"]})
+            except Exception as exc:  # noqa: BLE001
+                out.append({"key": key, "error": str(exc)})
+        return out
+
+    @app.get("/contract")
+    def get_contract():
+        from .verbs import CONTRACT, CONTRACT_FILE
+        return {"contract": CONTRACT, "file": CONTRACT_FILE, "controllers": verdicts()}
+
+    @app.post("/contract/check")
+    def check_contract(body: Dict[str, Any] = Body(...)):
+        """A contract checked, and what each onboarded controller's verdict would be under it; nothing changes."""
+        from .verbs import contract_problems
+        spec = body.get("contract", body)
+        problems = contract_problems(spec)
+        return {"ok": not problems, "problems": problems, "controllers": [] if problems else verdicts(spec)}
+
+    @app.put("/contract")
+    def put_contract(body: Dict[str, Any] = Body(...)):
+        """Replace the contract (the token, when one is set): the old file is kept as a .bak beside it."""
+        from .verbs import replace_contract
+        try:
+            done = replace_contract(body.get("contract", body))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {**done, "controllers": verdicts()}
+
     # ----- controllers -----
 
     @app.get("/controllers")

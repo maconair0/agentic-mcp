@@ -322,6 +322,9 @@ This needs the `mcp` package, version 1.x (1.8 or newer for `/mcp`). With
 | `GET /controllers`, `POST /controllers` | the controllers; onboard one (`key`, `url`, `kind`, `user_env`, `password_env`, `docs`) |
 | `GET /controllers/<key>`, `DELETE` | what was learned about one; forget it |
 | `GET /controllers/<key>/tools`, `POST .../call` | its tools; call one (`tool`, `arguments`, `approved_by`) |
+| `GET /contract` | the contract in use, its file, and each onboarded controller's verdict under it |
+| `POST /contract/check` | a contract checked (`{"contract": {...}}`): its problems, or what each controller's verdict would be; nothing changes |
+| `PUT /contract` | replace the contract (the token, when one is set): checked first, the old file kept as `contract.json.<time>.bak`, in use at once |
 | `POST /controllers/<key>/read`, `dry-run`, `write`, `confirm` | by verb (`verb`, `arguments`, `body`, `approved_by`) |
 | `GET /sessions`, `GET /sessions/<key>` | every controller's session: up, degraded or down, since when, requests, errors, answer times |
 | `GET /queue` | writes waiting for a person's approval |
@@ -487,6 +490,11 @@ shows it; it is kept on disk and every change of state is logged.
 To extend it, add a verb or a kind of work to `agentic_mcp/contract.json`: it
 is the only place a verb is defined (see [Adding a verb](#adding-a-verb)), and
 `python -m agentic_mcp sync-schema` brings the published schema in line.
+
+The contract can also be changed while the service runs, over HTTP: `POST /contract/check` previews a new one,
+listing its problems or what every controller's verdict would become, and `PUT /contract` applies it. The
+contract in use is updated in place, so every module sees it at once. CANAH's **SDN controllers** page does this
+from a browser, with the check before the apply.
 
 ## Settings
 
