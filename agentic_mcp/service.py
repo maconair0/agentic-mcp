@@ -229,10 +229,13 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
     def onboard(body: Dict[str, Any] = Body(...)):
         if not body.get("key") or not body.get("url"):
             raise HTTPException(400, "onboarding needs a key and the controller's url")
-        return desk.onboard(body["key"], body["url"], label=body.get("label", ""),
-                            user_env=body.get("user_env", ""), password_env=body.get("password_env", ""),
-                            spec=body.get("spec", ""), docs=body.get("docs") or [],
-                            kind=body.get("kind", ""))
+        try:
+            return desk.onboard(body["key"], body["url"], label=body.get("label", ""),
+                                user_env=body.get("user_env", ""), password_env=body.get("password_env", ""),
+                                spec=body.get("spec", ""), docs=body.get("docs") or [],
+                                kind=body.get("kind", ""))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
 
     @app.get("/controllers/{key}")
     def controller(key: str):

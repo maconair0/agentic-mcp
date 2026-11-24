@@ -111,6 +111,11 @@ class Desk:
         `kind` says which controller manifest it is of, for a controller that
         publishes nothing a kind could be recognised by."""
         if kind and not kw.get("spec"):
+            from .discover import families
+            known = sorted(f["family"] for f in families())
+            if kind not in known:
+                raise ValueError(f"no controller manifest of kind {kind!r}; the kinds known are: "
+                                 + (", ".join(known) or "none (upload a manifest first)"))
             kw["spec"] = kind
         previous = manifests.load(key, self.data)
         got = manifests.onboard(key, base_url, env=self.env, http=self.http,

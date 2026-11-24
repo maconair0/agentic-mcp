@@ -196,11 +196,18 @@ def discover(base_url: str, fetch: Fetch, spec: str = "", docs: Iterable[str] = 
         found["sources"].append(where)
         return True
 
-    if spec:
-        named = next((f for f in families() if f.get("family") == spec), None)
-        if named is not None:
-            take_spec(named, f"controller manifest {spec}")
-        elif os.path.exists(spec):
+    named = next((f for f in families() if f.get("family") == spec), None) if spec else None
+    if named is not None:
+        # A kind named by the operator. A manifest that lists its operations is
+        # the whole answer; one that says they are read from the controller
+        # (its API document, its pages) still needs them looked for, and the
+        # kind is then the one named, not one guessed.
+        if take_spec(named, f"controller manifest {spec}"):
+            return found
+        found["family"] = named["family"]
+        found["defaults"].update(named.get("defaults") or {})
+    elif spec:
+        if os.path.exists(spec):
             with open(spec) as fh:
                 take_spec(_json(fh.read()), spec)
         else:
