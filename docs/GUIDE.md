@@ -519,6 +519,39 @@ from a browser, with the check before the apply.
 | `AGENTIC_MCP_THREADS` | requests served at once in all (enough for every controller's share, at least 64) |
 | `AGENTIC_MCP_ENV_FILE` | the credentials file it reads at start (`controllers.env` beside the code); give each instance only its own controllers' |
 | `AGENTIC_MCP_CONTRACT` | a contract file to use instead of the packaged `contract.json`, for verbs of your own |
+| `AGENTIC_MCP_TOKENS` | a JSON file of narrower tokens (see *Who may do what*) |
+
+## Who may do what
+
+`AGENTIC_MCP_TOKEN` is the operator's token: it may do everything. For anyone
+else, list narrower tokens in the file `AGENTIC_MCP_TOKENS` names:
+
+```json
+[{"name": "noc", "token": "sha256:<sha256 hex of the token>", "controllers": ["onos"],
+  "write": false, "approve": false, "admin": false}]
+```
+
+- `controllers`: the controllers it reaches (`"*"` for all). Others are not
+  listed to it, over HTTP or MCP, and cannot be called with it.
+- `write`: it may call a write. A write is still refused unless someone with
+  `approve` names who approved it.
+- `approve`: it may send `approved_by`. Over MCP nobody may: the caller there
+  may be a model, and a model does not approve its own change. A write asked
+  for over MCP is refused or queued, and a person approves it over HTTP.
+- `admin`: it may onboard and remove controllers, install manifests and change
+  the contract.
+
+A token is written in clear or as `sha256:<hex>`. Asking in words (`/ask`)
+needs a token that reaches every controller.
+
+**Where a login goes.** A controller's user and password are sent only to that
+controller's own address (scheme, host and port), never to a documentation
+page or API document elsewhere. Each credential setting is bound to the address
+it was first onboarded with, in `credential_scope.json` in the data folder
+(`{"ONOS_PASSWORD": ["http://10.0.0.5:8181"]}`). Onboarding that pairs it with
+another address is refused, and a manifest changed to point elsewhere gets no
+login. To move a controller or share a login, an administrator adds the address
+to that file.
 
 ## What it does not do
 

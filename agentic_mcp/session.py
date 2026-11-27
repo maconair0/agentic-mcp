@@ -83,9 +83,20 @@ class Session:
 
     # ----- plumbing -----
 
-    def _auth(self) -> Optional[Tuple[str, str]]:
+    def _auth(self, url: str = "") -> Optional[Tuple[str, str]]:
+        """The controller's login, for a request to the controller itself only.
+
+        A documentation page or an API document elsewhere is fetched without
+        it, and so is any address the credential setting is not bound to
+        (access.CredentialScope)."""
         auth = self.manifest.get("auth") or {}
         if auth.get("type") != "basic":
+            return None
+        from . import access
+        if url and access.origin(url) != access.origin(self.host):
+            return None
+        scope = access.CredentialScope(os.path.join(os.path.dirname(self.audit), "credential_scope.json"))
+        if not scope.allows(access.CredentialScope.settings(self.manifest), self.host):
             return None
         return self.env.get(auth.get("user_env", ""), ""), self.env.get(auth.get("password_env", ""), "")
 
@@ -124,7 +135,7 @@ class Session:
         for attempt in range(1 if write else 2):
             started = time.monotonic()
             try:
-                r = self.http.request(method, url, json=body, auth=self._auth(),
+                r = self.http.request(method, url, json=body, auth=self._auth(url),
                                       timeout=(min(CONNECT_TIMEOUT, timeout), timeout),
                                       params=params,
                                       headers=headers or {"Accept": "application/json, */*;q=0.5"})

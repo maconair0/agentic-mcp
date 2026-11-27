@@ -69,6 +69,12 @@ class Desk:
                 if found is None:
                     self._seats.pop(key, None)
                     raise LookupError(f"{key} has not been onboarded")
+                # A controller onboarded before credentials were bound: bound now, to the address it has.
+                from . import access
+                try:
+                    self.scope().bind(access.CredentialScope.settings(found), found["base_url"])
+                except (OSError, PermissionError):
+                    logger.warning("the credential scope could not be updated for %s", key)
                 session = Session(found, env=self.env, http=self.http,
                                   audit=os.path.join(self.data, "audit.jsonl"), queue=self.queue)
                 tools = skills.tools_for(session, self.data, self._approver)
@@ -79,6 +85,10 @@ class Desk:
                     self._started.add(key)
                     skills.start_background(session, self.data)
             return seat
+
+    def scope(self):
+        from . import access
+        return access.CredentialScope(os.path.join(self.data, "credential_scope.json"))
 
     def close(self, key: str) -> None:
         """Forget a seat; the next use opens it again from the manifest."""
@@ -117,6 +127,12 @@ class Desk:
                 raise ValueError(f"no controller manifest of kind {kind!r}; the kinds known are: "
                                  + (", ".join(known) or "none (upload a manifest first)"))
             kw["spec"] = kind
+        from . import access
+        scope = self.scope()
+        settings = [s for s in (kw.get("user_env"), kw.get("password_env")) if s]
+        refused = scope.refusal(settings, base_url)
+        if refused:
+            raise ValueError(refused)
         previous = manifests.load(key, self.data)
         got = manifests.onboard(key, base_url, env=self.env, http=self.http,
                                 previous=previous, **kw)
@@ -127,6 +143,7 @@ class Desk:
             return {**previous, "kept": problem}
         got["manifest"]["conformance"] = contract.check(got["manifest"])
         manifests.save(got["manifest"], got["operations"], data=self.data)
+        scope.bind(access.CredentialScope.settings(got["manifest"]), got["manifest"]["base_url"])
         self.close(key)
         return got["manifest"]
 

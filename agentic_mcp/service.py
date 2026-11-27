@@ -19,6 +19,9 @@ Two ways in:
 A write is refused unless the mapping behind it is confirmed and the request
 names who approved it. With AGENTIC_MCP_TOKEN set, anything that is not a read
 of this service also needs that token, and so does the MCP endpoint.
+AGENTIC_MCP_TOKENS adds narrower tokens (access.py): some controllers only,
+reads only, no approving. Only an HTTP caller may name who approved a write;
+over MCP approved_by is not taken, since the caller there may be a model.
 """
 from __future__ import annotations
 
@@ -31,6 +34,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from . import agent as _agent
+from . import access as _access
 from . import contract
 from .desk import Desk
 
@@ -40,6 +44,7 @@ STARTED = time.time()
 def create_app(desk: Optional[Desk] = None) -> FastAPI:
     desk = desk or Desk()
     token = os.getenv("AGENTIC_MCP_TOKEN", "").strip()
+    callers = _access.Callers(token, _access.load_tokens())
     app = FastAPI(title="Agentic MCP", version="1")
     app.state.desk = desk
     from . import sessions as _sessions
@@ -85,14 +90,33 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
             self.inner = inner
 
         async def __call__(self, scope, receive, send):
-            if token and scope["type"] == "http" and (scope["method"] != "GET" or scope["path"].startswith("/mcp")):
+            if callers.required and scope["type"] == "http":
                 given = dict(scope.get("headers") or []).get(b"authorization", b"").decode("latin-1")
-                if given != f"Bearer {token}":
+                who = callers.who(given[7:] if given.startswith("Bearer ") else "")
+                if who is None and (scope["method"] != "GET" or scope["path"].startswith("/mcp")):
                     return await PlainTextResponse("this needs the agentic MCP's token", status_code=401)(
                         scope, receive, send)
+                # A GET without a token reads the service as before; it reaches no controller.
+                _access.CURRENT.set(who or _access.Principal("anonymous", frozenset(), False, False, False))
             await self.inner(scope, receive, send)
 
     app.add_middleware(Guard)
+
+    def must(ok: bool, why: str) -> None:
+        if not ok:
+            raise HTTPException(403, f"{_access.current().name}: {why}")
+
+    def admin_only() -> None:
+        must(_access.current().admin, "this token may not change what the agentic MCP holds")
+
+    def reach(key: str) -> None:
+        must(_access.current().reaches(key), f"this token does not reach {key}")
+
+    def approver(by: str) -> str:
+        by = str(by or "")
+        if by.strip():
+            must(_access.current().approve, "this token may not approve a write (approved_by)")
+        return by
 
     def seat_or_404(key: str):
         try:
@@ -147,6 +171,7 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
     @app.post("/manifests")
     async def upload(request: Request, name: str = "manifest.yaml"):
         """A controller manifest, as the body of the request (YAML or JSON)."""
+        admin_only()
         form_type = request.headers.get("content-type", "")
         if form_type.startswith("multipart/"):
             form = await request.form()
@@ -164,6 +189,7 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
         """A controller's user guide or API document, as the body of the request
         (text, Markdown, HTML, an OpenAPI document, or a PDF). A manifest is
         drafted from it in the standard form and kept for that kind."""
+        admin_only()
         data: Any = await request.body()
         if request.headers.get("content-type", "").startswith("multipart/"):
             form = await request.form()
@@ -209,6 +235,7 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
     def put_contract(body: Dict[str, Any] = Body(...)):
         """Replace the contract (the token, when one is set): the old file is kept as a .bak beside it."""
         from .verbs import replace_contract
+        admin_only()
         try:
             done = replace_contract(body.get("contract", body))
         except ValueError as e:
@@ -229,6 +256,7 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
 
     @app.post("/controllers")
     def onboard(body: Dict[str, Any] = Body(...)):
+        admin_only()
         if not body.get("key") or not body.get("url"):
             raise HTTPException(400, "onboarding needs a key and the controller's url")
         try:
@@ -247,6 +275,7 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
 
     @app.delete("/controllers/{key}")
     def remove(key: str):
+        admin_only()
         return {"removed": desk.remove(key)}
 
     @app.get("/controllers/{key}/tools")
@@ -256,13 +285,21 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
 
     @app.post("/controllers/{key}/call")
     def call(key: str, body: Dict[str, Any] = Body(...)):
+        reach(key)
         seat_or_404(key)
-        return desk.call(key, body.get("tool", ""), body.get("arguments") or {},
-                         approved_by=str(body.get("approved_by") or ""))
+        name = body.get("tool", "")
+        if any(t["write"] for t in desk.tools(key) if t["name"] == name):
+            must(_access.current().write, f"this token may not write ({name})")
+        return desk.call(key, name, body.get("arguments") or {}, approved_by=approver(body.get("approved_by")))
 
     @app.post("/controllers/{key}/{what}")
     def verb(key: str, what: str, body: Dict[str, Any] = Body(...)):
+        reach(key)
         seat_or_404(key)
+        if what == "write":
+            must(_access.current().write, "this token may not write")
+        if what == "confirm":
+            admin_only()
         args = body.get("arguments") or {}
         try:
             if what == "read":
@@ -271,7 +308,7 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
                 return desk.dry_run(key, body["verb"], body.get("body"), **args)
             if what == "write":
                 return desk.write(key, body["verb"], body.get("body"),
-                                  approved_by=str(body.get("approved_by") or ""), **args)
+                                  approved_by=approver(body.get("approved_by")), **args)
             if what == "confirm":
                 return desk.confirm(key, body["verb"], str(body.get("by") or ""), body.get("operation", ""))
         except (LookupError, ValueError, KeyError) as exc:
@@ -282,14 +319,19 @@ def create_app(desk: Optional[Desk] = None) -> FastAPI:
 
     @app.post("/ask")
     def ask(body: Dict[str, Any] = Body(...)):
+        # Words may name any controller, so only a token that reaches all of them asks in words.
+        must(_access.current().reaches("*"), "asking in words needs a token that reaches every controller")
+        if body.get("confirm"):
+            must(_access.current().write, "this token may not write")
+        approver(body.get("approved_by"))
         return _agent.ask(desk, str(body.get("text") or ""), confirm=bool(body.get("confirm")),
                           approved_by=str(body.get("approved_by") or ""))
 
-    _mount_mcp(app, desk)
+    _mount_mcp(app, desk, callers)
     return app
 
 
-def _mount_mcp(app: FastAPI, desk: Desk) -> None:
+def _mount_mcp(app: FastAPI, desk: Desk, callers: Any = None) -> None:
     """The same desk, for a client that speaks MCP."""
     try:
         from mcp import types
@@ -313,9 +355,8 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
         "desk_controllers": ("Every controller onboarded here, with its domain and how it fares "
                              "against the contract.", {}),
         "desk_ask": ("Ask about the controllers in words, e.g. 'list the devices on metro'. A write is "
-                     "answered with a dry run unless confirm is true and approved_by names a person.",
-                     {"text": {"type": "string"}, "confirm": {"type": "boolean"},
-                      "approved_by": {"type": "string"}}),
+                     "answered with a dry run: a person approves writes over HTTP, never through MCP.",
+                     {"text": {"type": "string"}}),
         "desk_onboard": ("Onboard a controller from its own API: key, url, and the names of the "
                          "settings holding its credentials. kind names its controller manifest, for one "
                          "that publishes nothing it could be recognised by.",
@@ -326,23 +367,44 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
                           "how long it takes to answer.", {}),
     }
 
+    def caller() -> Any:
+        """Who is calling: from this message's own headers where the transport
+        gives them, else from the request the stream was opened with."""
+        try:
+            request = server.request_context.request
+            given = request.headers.get("authorization", "") if request is not None else None
+        except (LookupError, AttributeError):
+            given = None
+        if given is not None and callers is not None and callers.required:
+            who = callers.who(given[7:] if given.startswith("Bearer ") else "")
+            if who is None:
+                raise PermissionError("this needs the agentic MCP's token")
+            return who
+        return _access.current()
+
     def public(key: str, name: str) -> str:
         return name if name.startswith(key + "_") else f"{key}__{name}"
 
     @server.list_tools()
     async def list_tools() -> List[Any]:
+        who = caller()
+        own = {n: v for n, v in OWN.items()
+               if (n != "desk_onboard" or who.admin) and (n != "desk_ask" or who.reaches("*"))}
         out = [types.Tool(name=n, description=d, inputSchema={"type": "object", "properties": p})
-               for n, (d, p) in OWN.items()]
+               for n, (d, p) in own.items()]
         for key in desk.keys():
+            if not who.reaches(key):
+                continue
             try:
                 tools = desk.tools(key)
             except Exception:  # noqa: BLE001
                 continue
             for t in tools:
+                if t["write"] and not who.write:
+                    continue
+                # No approved_by here: whoever calls over MCP may be a model, and a model does not approve.
+                # A write sent from here is queued or refused; a person approves it over HTTP.
                 schema = dict(t["schema"] or {"type": "object", "properties": {}})
-                if t["write"]:
-                    schema = {**schema, "properties": {**(schema.get("properties") or {}),
-                              "approved_by": {"type": "string", "description": "who approved this change"}}}
                 out.append(types.Tool(name=public(key, t["name"]), inputSchema=schema,
                                       description=f"[{key}] {t['description']}"[:1000]))
         return out
@@ -351,31 +413,45 @@ def _mount_mcp(app: FastAPI, desk: Desk) -> None:
     async def call_tool(name: str, arguments: Dict[str, Any]) -> List[Any]:
         import asyncio
         arguments = dict(arguments or {})
+        arguments.pop("approved_by", None)
+        who = caller()
 
         def run() -> str:
             if name == "desk_controllers":
                 return json.dumps([{k: v for k, v in desk.describe(key).items() if k != "conformance"}
                                    | {"verdict": desk.describe(key)["conformance"]["verdict"]}
-                                   for key in desk.keys()], indent=1)
+                                   for key in desk.keys() if who.reaches(key)], indent=1)
             if name == "desk_sessions":
                 from . import sessions as _s
-                return _s.text(_s.TRACKER.view())
+                return _s.text([r for r in _s.TRACKER.view() if who.reaches(r["controller"])])
             if name == "desk_kinds":
                 return json.dumps(desk.kinds(), indent=1)
             if name == "desk_ask":
-                return json.dumps(_agent.ask(desk, arguments.get("text", ""), bool(arguments.get("confirm")),
-                                             arguments.get("approved_by", "")), indent=1, default=str)
+                if not who.reaches("*"):
+                    return "Refused: asking in words needs a token that reaches every controller"
+                return json.dumps(_agent.ask(desk, arguments.get("text", ""), False, ""), indent=1, default=str)
             if name == "desk_onboard":
-                found = desk.onboard(arguments["key"], arguments["url"], kind=arguments.get("kind", ""),
-                                     user_env=arguments.get("user_env", ""),
-                                     password_env=arguments.get("password_env", ""))
-                return desk.summary(found["key"])
-            by = str(arguments.pop("approved_by", "") or "")
+                if not who.admin:
+                    return "Refused: this token may not onboard a controller"
+                try:
+                    return _onboard()
+                except ValueError as exc:
+                    return f"Refused: {exc}"
             for key in desk.keys():
+                if not who.reaches(key):
+                    continue
                 for t in desk.tools(key):
                     if public(key, t["name"]) == name:
-                        return desk.call(key, t["name"], arguments, approved_by=by)["text"]
+                        if t["write"] and not who.write:
+                            return f"Refused: this token may not write ({name})"
+                        return desk.call(key, t["name"], arguments, approved_by="")["text"]
             return f"Unknown tool: {name}"
+
+        def _onboard() -> str:
+            found = desk.onboard(arguments["key"], arguments["url"], kind=arguments.get("kind", ""),
+                                 user_env=arguments.get("user_env", ""),
+                                 password_env=arguments.get("password_env", ""))
+            return desk.summary(found["key"])
 
         return [types.TextContent(type="text", text=await asyncio.to_thread(run))]
 
