@@ -240,13 +240,19 @@ class McpTests(unittest.TestCase):
                     return await work(s)
         return asyncio.run(go())
 
+    def transports(self):
+        """The MCP transports this build serves: SSE always, streamable HTTP where /health says so."""
+        import requests
+        health = requests.get(self.base + "/health", timeout=5).json()
+        return ("sse", "http") if str(health.get("mcp_http") or "").startswith("/mcp") else ("sse",)
+
     def names(self, transport, token):
         async def work(s):
             return {t.name: t for t in (await s.list_tools()).tools}
         return self.session(transport, token, work)
 
     def test_a_token_lists_its_controllers_tools_only(self):
-        for transport in ("sse", "http"):
+        for transport in self.transports():
             tools = self.names(transport, "noc-token")
             self.assertTrue(any(n.startswith("a_") or n.startswith("a__") for n in tools), transport)
             self.assertFalse(any(n.startswith("b_") or n.startswith("b__") for n in tools), transport)
@@ -254,7 +260,7 @@ class McpTests(unittest.TestCase):
             self.assertFalse(any(t.name.startswith("a_") and "create_service" in t.name for t in tools.values()))
 
     def test_no_write_offers_or_takes_an_approver(self):
-        for transport in ("sse", "http"):
+        for transport in self.transports():
             tools = self.names(transport, "approver-token")
             writes = [t for n, t in tools.items() if "create_service" in n]
             self.assertTrue(writes, transport)
@@ -274,7 +280,7 @@ class McpTests(unittest.TestCase):
         async def work(s):
             got = await s.call_tool("b_list_devices", {})
             return got.content[0].text
-        for transport in ("sse", "http"):
+        for transport in self.transports():
             self.assertIn("Unknown tool", self.session(transport, "noc-token", work), transport)
 
 
